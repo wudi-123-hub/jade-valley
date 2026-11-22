@@ -77,6 +77,8 @@ var draft_tier := 0
 var draft_commission := ""
 var draft_relic := -1
 var draft_scout := false
+var draft_remedy := -1
+var remedy_return := "garden"
 var duty_selection := -1
 var relic_return := "expedition"
 var route_choice := ""
@@ -579,6 +581,7 @@ func open_scene(kind: String,instant := false) -> void:
 		sound_tick()
 	match kind:
 		"garden": garden_window()
+		"remedies": remedies_window()
 		"recruit": recruit_window()
 		"duties": duties_window()
 		"pet": pet_window()
@@ -621,7 +624,7 @@ func window(title: String,subtitle: String,glyph: String, dimensions: Vector2) -
 	return host
 
 func garden_window() -> void:
-	var host := window("灵药圃","灵石 %d    ·    灵草 %d" % [game.data.stones,game.data.herbs],"sprout",Vector2(850,528))
+	var host := window("灵药圃","灵石 %d    ·    灵草 %d" % [game.data.stones,game.data.herbs],"sprout",Vector2(850,558))
 	for i in 3:
 		var x := 26+i*267
 		var crop: Array = game.data.plots[i]
@@ -647,6 +650,39 @@ func garden_window() -> void:
 		ui.button(host,"采收灵草" if ready else "灵草正在生长",Rect2(26,346,797,47),func(): game.harvest(active_plot);open_scene("garden",true),UI.JADE,true,10,ready)
 	ui.button(host,"休整一日",Rect2(26,419,391,45),func(): game.record("山门","山门休整了一日。");open_scene("garden",true),UI.GOLD)
 	ui.button(host,"炼化 1 株灵草 · 修为 +23",Rect2(430,419,391,45),func(): game.refine();open_scene("garden",true),UI.COLORS[4],false,10,game.data.herbs>0)
+	ui.button(host,"丹房备战",Rect2(26,478,795,46),func(): open_remedies("garden"),UI.OCHRE)
+
+func open_remedies(from: String) -> void:
+	remedy_return=from
+	open_scene("remedies")
+
+func remedies_window() -> void:
+	var choosing := remedy_return=="expedition"
+	var host := window("丹房备战","灵草 %d 株 · 灵石 %d · 每趟可携带一份，平安归来时退回未用药剂。" % [game.data.herbs,game.data.stones],"flame",Vector2(1110,609))
+	var tones := [UI.JADE,UI.COLORS[3],UI.OCHRE]
+	for i in Expedition.REMEDIES.size():
+		var recipe: Dictionary = Expedition.REMEDIES[i]
+		var x := 26+i*354
+		var stock: int = game.data.remedies[i]
+		ui.framed(host,Rect2(x,120,340,397))
+		ui.box(host,Rect2(x+12,132,316,154),UI.INK,UI.BORDER,9)
+		ui.picture(host,load("res://assets/remedy%d.webp" % i),Rect2(x+64,139,212,139))
+		ui.label(host,recipe.name,Rect2(x+16,294,308,39),24,UI.PAPER,true,true)
+		ui.label(host,recipe.hint,Rect2(x+25,337,290,42),15,UI.MUTE,true,false,true)
+		ui.label(host,"库存 %d 份" % stock,Rect2(x+18,383,304,28),15,tones[i],true)
+		var brew := ui.button(host,"炼制 · %d 草 / %d 石" % [recipe.herbs,recipe.stones],Rect2(x+19,416,302,39),func():
+			if game.brew_remedy(i):
+				open_scene("remedies",true),tones[i],not choosing,10,game.can_brew_remedy(i))
+		brew.tooltip_text="消耗 %d 株灵草和 %d 灵石。" % [recipe.herbs,recipe.stones]
+		if choosing:
+			ui.button(host,"本趟已选" if i==draft_remedy else "携带"+recipe.name,Rect2(x+19,464,302,38),func():
+				draft_remedy=i
+				open_scene("expedition",true),tones[i],i!=draft_remedy,9,stock>0 and i!=draft_remedy)
+	if choosing:
+		ui.button(host,"本趟不携带",Rect2(26,540,320,44),func():
+			draft_remedy=-1
+			open_scene("expedition",true),UI.JADE,false,10,draft_remedy>=0)
+	ui.button(host,"返回远征整备" if choosing else "返回灵药圃",Rect2(736,540,352,44),func():open_scene(remedy_return,true),UI.JADE)
 
 func recruit_window() -> void:
 	var people: Array = game.data.people
@@ -1054,14 +1090,28 @@ func battle_window() -> void:
 		ui.label(tile,action[1],Rect2(72,9,156,34),21,UI.INK if primary else UI.PAPER,false,true)
 		ui.label(tile,action[2],Rect2(72,42,177,24),13,UI.INK if primary else UI.MUTE)
 	var spirit: int = game.expedition_spirit()
+	var brew_id: int = b.get("remedy",-1)
+	if brew_id>=0:
+		var recipe: Dictionary = Expedition.REMEDIES[brew_id]
+		var reason := Expedition.remedy_block(b)
+		var suffix := " · 护阵中" if b.get("remedy_ward",0)>0 else (" · 已用" if b.remedy_used else "")
+		var dose := ui.button(host,"[F] "+recipe.name+suffix,Rect2(322,666,382,49),combat_remedy,UI.GOLD,reason.is_empty(),10,reason.is_empty())
+		dose.tooltip_text=recipe.hint if reason.is_empty() else reason
 	if spirit>=0:
-		ui.label(host,"第 %d 回合 · 数字键 1–5 出招" % b.turn,Rect2(29,670,350,42),15,UI.MUTE)
+		ui.label(host,"第 %d 回合 · 数字键 1–5 出招" % b.turn,Rect2(29,670,285,42),15,UI.MUTE)
 		var technique: Array = Expedition.PET_MOVES[spirit]
 		var available: bool = game.can_combat("spirit")
 		var bond := ui.button(host,"[5] %s · %s" % [technique[0],"本趟可用 1 次" if available else "本趟已用"],Rect2(716,666,383,49),func():combat("spirit"),UI.JADE,available,12,available)
 		bond.tooltip_text=technique[1] if spirit!=1 else "造成 %d 点伤害，可打断重击和守势。" % game.spirit_damage()
-	else:
+	elif brew_id<0:
 		ui.label(host,"第 %d 回合 · 数字键 1–4 出招" % b.turn,Rect2(26,673,1074,29),15,UI.MUTE,true)
+	else:
+		ui.label(host,"第 %d 回合 · 数字键 1–4 出招" % b.turn,Rect2(29,670,285,42),15,UI.MUTE)
+
+func combat_remedy() -> void:
+	if game.use_turn_remedy():
+		sound_tick("chime")
+		open_scene("battle",true)
 
 
 func open_expedition() -> void:
@@ -1070,6 +1120,7 @@ func open_expedition() -> void:
 		draft_tier = 0
 		draft_commission = ""
 		draft_scout=false
+		draft_remedy=-1
 		draft_relic = int(game.data.expedition_relic_preset)
 		if not game.relic_unlocked(draft_relic):
 			draft_relic=-1
@@ -1081,6 +1132,7 @@ func expedition_window() -> void:
 	if not game.data.expedition.is_empty():
 		expedition_route()
 		return
+	draft_herbs=mini(draft_herbs,game.data.herbs)
 	var region: int = game.data.map
 	var host := window("遗灯秘境","%s · 单人远征整备" % State.MAPS[region][1],"compass",Vector2(1106,620))
 	var veil := Control.new()
@@ -1114,11 +1166,13 @@ func expedition_window() -> void:
 		draft_scout=not draft_scout
 		open_scene("expedition",true),UI.JADE,draft_scout,10,game.data.scout_token>0)
 	scout_button.tooltip_text="启程时消耗 1 张，给第三段增加无伤捷径。" if game.data.scout_token>0 else "安排弟子巡山，在岗 3 日后取得。"
+	var remedy_name: String = Expedition.REMEDIES[draft_remedy].name if draft_remedy>=0 else "未携带"
+	ui.button(host,"丹房备战 · "+remedy_name,Rect2(530,449,546,43),func():open_remedies("expedition"),UI.OCHRE,draft_remedy>=0)
 	ui.button(host,"宗门营造",Rect2(530,501,189,54),func(): open_scene("facilities"),UI.JADE)
 	ui.button(host,"启程入境",Rect2(731,501,345,54),launch_prepared_expedition,UI.OCHRE,true)
 
 func launch_prepared_expedition() -> void:
-	if game.start_expedition(-1,-1,draft_herbs,draft_tier,draft_commission,draft_relic,draft_scout,action_expeditions):
+	if game.start_expedition(-1,-1,draft_herbs,draft_tier,draft_commission,draft_relic,draft_scout,action_expeditions,draft_remedy):
 		route_choice=""
 		open_scene("expedition",true)
 
@@ -1265,6 +1319,10 @@ func expedition_route() -> void:
 			ui.mark(coin,"check" if visited and not active else scene[3],Rect2(66,8,30,28),UI.INK if chosen else UI.GOLD)
 			ui.label(coin,scene[0],Rect2(6,36,150,30),15,label_color,true,true)
 	ui.label(host,"气血 %d / %d    灵草 %d" % [route.hp,route.maxhp,route.herbs],Rect2(27,506,459,35),18,UI.JADE)
+	var remedy: int = route.get("remedy",-1)
+	if remedy>=0:
+		var status := "已用" if route.get("remedy_used",false) else "可用"
+		ui.label(host,"%s · %s" % [Expedition.REMEDIES[remedy].name,status],Rect2(295,506,215,35),16,UI.GOLD,true)
 	if int(route.get("spirit_index",-1))>=0:
 		ui.label(host,"灵契  %d / 1" % route.spirit_charges,Rect2(501,506,183,35),16,UI.JADE,true)
 	ui.label(host,"战利品  %d 灵石 · %d 灯砂" % [route.coins,route.dust],Rect2(686,506,443,35),18,UI.GOLD,true)
@@ -1340,6 +1398,9 @@ func expedition_result_window() -> void:
 	else:
 		ui.button(host,"宗门营造",Rect2(28,402,365,54),func():open_scene("facilities"),UI.OCHRE,true)
 		ui.button(host,"返回山门",Rect2(407,402,372,54),close_scene,UI.JADE)
+	var returned: int = result.get("remedy_returned",-1)
+	if returned>=0:
+		ui.label(host,"未用药剂已退回 · "+Expedition.REMEDIES[returned].name,Rect2(28,486,751,44),16,UI.JADE,true)
 
 func facilities_window() -> void:
 	var host := window("宗门营造","当前持有 %d 灵石 · %d 灯砂" % [game.data.stones,game.data.dust],"hall",Vector2(915,620))
@@ -1521,6 +1582,9 @@ func _input(event: InputEvent) -> void:
 	elif scene_key=="battle" and not is_instance_valid(duel) and event.keycode>=KEY_1 and event.keycode<=KEY_5:
 		combat(["attack","guard","spell","herb","spirit"][event.keycode-KEY_1])
 		get_viewport().set_input_as_handled()
+	elif scene_key=="battle" and not is_instance_valid(duel) and event.keycode==KEY_F:
+		combat_remedy()
+		get_viewport().set_input_as_handled()
 	elif scene_key=="dialogue" and event.keycode==KEY_SPACE:
 		next_dialogue()
 		get_viewport().set_input_as_handled()
@@ -1589,9 +1653,65 @@ func smoke_test() -> void:
 	print("ACTION_DUEL_SMOKE_", "PASS" if action else "FAIL")
 	var heroes := smoke_hero_selection()
 	print("HERO_SELECTION_SMOKE_", "PASS" if heroes else "FAIL")
+	var remedies := smoke_remedies()
+	print("REMEDY_SMOKE_", "PASS" if remedies else "FAIL")
 	music.free()
 	sfx.free()
-	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes else 1)
+	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies else 1)
+
+func smoke_remedies() -> bool:
+	game=State.new()
+	game.transient=true
+	var heal := Expedition.Remedy.HEAL
+	var ward := Expedition.Remedy.WARD
+	if game.brew_remedy(heal) or game.start_expedition(-1,-1,0,0,"",-1,false,false,heal):
+		return false
+	game.data.herbs=7
+	var day: int = game.data.day
+	if not game.brew_remedy(heal) or not game.brew_remedy(ward):
+		return false
+	if game.data.stones!=84 or game.data.herbs!=2 or game.data.day!=day:
+		return false
+	if not game.start_expedition(-1,-1,0,0,"",-1,false,false,heal) or game.data.remedies[heal]!=0 or not game.expedition_take("pool") or not game.extract_expedition():
+		return false
+	if game.data.remedies[heal]!=1 or game.data.expedition_last.remedy_returned!=heal:
+		return false
+	game.data.map=1
+	if not game.start_expedition(-1,-1,1,0,"",-1,false,false,ward):
+		return false
+	game.start_expedition_battle("boss")
+	game.battle.enemy=int(game.battle.maxenemy/2.0)
+	if not game.use_turn_remedy() or game.battle.turn!=1 or game.use_turn_remedy():
+		return false
+	game.leave_battle()
+	if not game.resume_expedition_battle() or not game.data.expedition.remedy_used:
+		return false
+	game.strike("attack")
+	if game.battle.taken!=21 or game.data.expedition.herbs!=1 or game.battle.get("remedy_ward",0)!=0:
+		return false
+	game.battle.hp=1
+	game.strike("attack")
+	game.leave_battle()
+	if game.data.expedition_last.result!="败退" or game.data.remedies[ward]!=0:
+		return false
+	if not game.start_expedition(-1,-1,0,0,"",-1,false,false,heal):
+		return false
+	game.start_expedition_battle("trail")
+	if game.use_turn_remedy():
+		return false
+	game.battle.hp-=8
+	if not game.use_turn_remedy() or game.battle.healed!=8 or game.battle.turn!=1:
+		return false
+	var arena := ActionDuel.new()
+	var values := {"expedition_node":"trail","tier":0,"result":0,"hp":90,"maxhp":90,"enemy":51,"maxenemy":51,"focus":1,"relic":-1,"remedy":ward,"remedy_used":false}
+	arena.setup(values,0,-1,0,false,false)
+	arena.use_remedy()
+	arena.dash=.1
+	var dodged: bool = not arena.damage_player(23) and values.remedy_ward==16
+	arena.dash=0
+	var guarded: bool = arena.damage_player(23) and values.hp==83 and values.get("remedy_ward",0)==0
+	arena.free()
+	return dodged and guarded
 
 func smoke_expedition() -> bool:
 	game=State.new()

@@ -41,6 +41,7 @@ const DEFAULT = {
 	"expedition":{},"expedition_last":{},"expedition_serial":0,"expedition_wins":[0,0,0,0],
 	"expedition_commissions":0,
 	"expedition_relic_preset":-1,
+	"remedies":[0,0,0],
 	"duty_orders":{},"scout_days":0,"scout_token":0,
 	"sound":true,"music":true,"motion":true
 }
@@ -451,6 +452,8 @@ func strike(tactic: String) -> void:
 		battle.taken-=absorbed
 		battle.relic_spent=true
 		battle.relic_note="潮甲印 · 抵消 %d 伤害" % absorbed
+	var warded := Expedition.absorb_remedy_ward(battle,battle.taken)
+	battle.taken-=warded
 	battle.hp = maxi(0,battle.hp-battle.taken)
 	battle.charge = guard or (heal and battle.charge)
 	battle.turn += 1
@@ -464,7 +467,9 @@ func strike(tactic: String) -> void:
 		battle.note = "气血恢复 %d，承受 %d 点反击。" % [battle.healed,battle.taken]
 	else:
 		battle.note = "造成 %d 伤害，承受 %d 点反击。" % [battle.hit,battle.taken]
-	if signature and not battle.interrupt and spirit!=0:
+	if warded>0:
+		battle.note+=" 镇煞符减伤 %d。" % warded
+	if signature and not battle.interrupt and spirit!=0 and warded==0:
 		apply_boss_signature(guard)
 	if battle.hp==0:
 		battle.result = -1
@@ -537,7 +542,38 @@ func expedition_forecast(use_scout := false) -> Dictionary:
 func relic_unlocked(relic: int) -> bool:
 	return relic>=0 and relic<Expedition.RELICS.size() and data.expedition_wins[relic]>0
 
-func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := "",relic := -1,use_scout := false,action := false) -> bool:
+func can_brew_remedy(id: int) -> bool:
+	if id<0 or id>=Expedition.REMEDIES.size():
+		return false
+	var recipe: Dictionary = Expedition.REMEDIES[id]
+	return data.herbs>=recipe.herbs and data.stones>=recipe.stones
+
+func brew_remedy(id: int) -> bool:
+	if not can_brew_remedy(id):
+		return false
+	var recipe: Dictionary = Expedition.REMEDIES[id]
+	data.herbs-=recipe.herbs
+	data.stones-=recipe.stones
+	data.remedies[id]+=1
+	record("丹房","炼成一份%s。" % recipe.name,false)
+	return true
+
+func use_turn_remedy() -> bool:
+	if battle.get("action_duel",false) or not battle.get("expedition",false):
+		return false
+	var hp: int = battle.hp
+	var message := Expedition.apply_remedy(battle)
+	if message.is_empty():
+		return false
+	battle.healed=battle.hp-hp
+	battle.hit=0
+	battle.taken=0
+	battle.relic_note=""
+	battle.note=message+" · 可继续出招。"
+	store_expedition_battle()
+	return true
+
+func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := "",relic := -1,use_scout := false,action := false,remedy := -1) -> bool:
 	if not data.expedition.is_empty() or not battle.is_empty() or not guide_available(guide) or pet< -1 or pet>=data.pets.size():
 		return false
 	if packed<0 or packed>3 or packed>data.herbs or tier<0 or tier>1 or (tier==1 and data.expedition_wins[data.map]<1):
@@ -549,12 +585,16 @@ func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := ""
 		return false
 	if relic!=-1 and not relic_unlocked(relic):
 		return false
+	if remedy!=-1 and (remedy<0 or remedy>=Expedition.REMEDIES.size() or data.remedies[remedy]<=0):
+		return false
 	var group := guide%Expedition.ROLES.size() if guide>=0 else -1
 	var cap: int = 83 + int(data.rank)*9 + data.facilities.medicine_hall*12 + (18 if group==1 else 0) + (12 if pet==0 else 0)
 	var attack: int = data.facilities.sword_hall*4
 	data.herbs-=packed
 	if use_scout:
 		data.scout_token-=1
+	if remedy>=0:
+		data.remedies[remedy]-=1
 	data.expedition_serial+=1
 	data.expedition_relic_preset=relic
 	data.expedition = {
@@ -566,6 +606,7 @@ func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := ""
 		"action":action and data.map==0,
 		"boss_tactics":true,"spirit_index":pet,"spirit_charges":int(pet>=0),
 		"relic":relic,
+		"remedy":remedy,"remedy_used":false,
 		"boost":0,"focus":data.facilities.observatory+int(pet==2),"guard":4 if pet==3 else 0,
 		"slash":attack+(5 if group==0 else 0),"spell":attack+(8 if pet==1 else 0)
 	}
@@ -666,6 +707,7 @@ func start_expedition_battle(option: String) -> void:
 		"result":0,"hit":0,"taken":0,"action":"","interrupt":false,"healed":0,
 		"boss_tactics":option=="boss" and run.get("boss_tactics",false),"signature_used":false,
 		"action_duel":run.get("action",false),
+		"remedy":run.get("remedy",-1),"remedy_used":run.get("remedy_used",false),
 		"relic":relic,"relic_spent":false,"relic_note":"玄霜灯芯 · 开场恢复 %d 气血" % restored if restored>0 else "",
 		"slash":run.slash+run.boost,"spell":run.spell+run.boost,"guard":run.guard
 	}
@@ -673,6 +715,7 @@ func start_expedition_battle(option: String) -> void:
 
 func store_expedition_battle() -> void:
 	if not data.expedition.is_empty():
+		data.expedition.remedy_used=battle.get("remedy_used",false)
 		data.expedition.combat=battle.duplicate(true)
 		data.expedition.hp=battle.hp
 		save_game()
@@ -689,6 +732,7 @@ func expedition_herbs() -> int:
 func resolve_expedition_fight(won: bool) -> void:
 	var run: Dictionary = data.expedition
 	run.hp=battle.hp
+	run.remedy_used=battle.get("remedy_used",false)
 	run.combat.clear()
 	if not won:
 		battle.note="%s败退，带回一半灵石。" % hero_name()
@@ -761,9 +805,13 @@ func finish_expedition(result: String) -> void:
 	data.dust+=grains
 	data.herbs+=herbs
 	data.qi+=experience
+	var returned: int = run.get("remedy",-1) if survived and not run.get("remedy_used",false) else -1
+	if returned>=0:
+		data.remedies[returned]+=1
 	data.expedition_last = {"result":result,"coins":coins,"dust":grains,"herbs":herbs,"qi":experience,"area":run.area,"steps":run.step,"tier":run.tier}
 	data.expedition_last.merge({"commission":commission,"commission_done":completed,"bonus_coins":bonus_coins,"bonus_dust":bonus_dust})
 	data.expedition_last.relic_unlocked=new_relic
+	data.expedition_last.remedy_returned=returned
 	data.expedition={}
 	var note := "远征%s，入账 %d 灵石、%d 灯砂。" % [result,coins,grains]
 	if new_relic>=0:

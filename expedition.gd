@@ -39,6 +39,12 @@ const COMMISSIONS = {
 const COMMISSION_PAIRS = [["hunt","herbs"],["trace","safe"],["herbs","safe"],["trace","hunt"]]
 const KINDS = ["启程","林间","险地","整备","灯门"]
 const BOSSES = ["沉潭古甲","焰翎蜃龙","霜枫镜鸮","寒阙雪狮"]
+enum Remedy { HEAL, FOCUS, WARD }
+const REMEDIES = [
+	{"name":"回春散","herbs":2,"stones":10,"amount":26,"hint":"立刻恢复至多 26 气血。适合少走休整点的路线。"},
+	{"name":"凝锋丸","herbs":2,"stones":14,"amount":2,"hint":"立刻获得至多 2 点剑意。留给需要打断的敌招。"},
+	{"name":"镇煞符","herbs":3,"stones":16,"amount":16,"hint":"本场下一次受伤减免至多 16 点，抵消这次绝技的附带效果。"}
+]
 enum Relic { TIDE, FLAME, MIRROR, FROST }
 const RELICS = [
 	["潮甲印","每场首次未架剑而承受重击时，减免至多 14 伤害。","shield"],
@@ -103,3 +109,40 @@ static func trace_site(steps: Array) -> String:
 static func commission_brief(key: String,steps: Array) -> String:
 	var brief: String = COMMISSIONS[key][1]
 	return brief % OPTIONS[trace_site(steps)][0] if key=="trace" else brief
+
+static func remedy_block(battle: Dictionary) -> String:
+	var id: int = battle.get("remedy",-1)
+	if id<0 or battle.result!=0:
+		return "当前无法用药。"
+	if battle.get("remedy_used",false):
+		return "本趟已用。"
+	if id==Remedy.HEAL and battle.hp>=battle.maxhp:
+		return "气血已满。"
+	if id==Remedy.FOCUS and battle.focus>=3:
+		return "剑意已满。"
+	return ""
+
+static func apply_remedy(battle: Dictionary) -> String:
+	if not remedy_block(battle).is_empty():
+		return ""
+	var recipe: Dictionary = REMEDIES[battle.remedy]
+	battle.remedy_used=true
+	match int(battle.remedy):
+		Remedy.HEAL:
+			var healed: int = mini(recipe.amount,battle.maxhp-battle.hp)
+			battle.hp+=healed
+			return "%s · 气血 +%d" % [recipe.name,healed]
+		Remedy.FOCUS:
+			var gained: int = mini(recipe.amount,3-battle.focus)
+			battle.focus+=gained
+			return "%s · 剑意 +%d" % [recipe.name,gained]
+		_:
+			battle.remedy_ward=recipe.amount
+			return "%s · 已护阵" % recipe.name
+
+static func absorb_remedy_ward(battle: Dictionary,damage: int) -> int:
+	if damage<=0:
+		return 0
+	var absorbed := mini(damage,battle.get("remedy_ward",0))
+	battle.erase("remedy_ward")
+	return absorbed

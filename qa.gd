@@ -138,7 +138,7 @@ func _ready() -> void:
 	old_save.close()
 	var migrated = State.new()
 	migrated.save_prefix = isolated+"-legacy"
-	if not migrated.read_save() or migrated.data.rank!=2 or migrated.data.story_chapter!=0 or migrated.data.stones!=421 or not migrated.relic_unlocked(0) or migrated.data.expedition_relic_preset!=-1 or not migrated.data.duty_orders.is_empty() or migrated.data.scout_token!=0 or migrated.data.hero_style!=-1 or not migrated.hero_unlocked(2):
+	if not migrated.read_save() or migrated.data.rank!=2 or migrated.data.story_chapter!=0 or migrated.data.stones!=421 or not migrated.relic_unlocked(0) or migrated.data.expedition_relic_preset!=-1 or not migrated.data.duty_orders.is_empty() or migrated.data.scout_token!=0 or migrated.data.hero_style!=-1 or not migrated.hero_unlocked(2) or migrated.data.remedies!=[0,0,0]:
 		get_tree().quit(13)
 		return
 	print("WINDOWED_RENDER_PASS")
@@ -400,8 +400,30 @@ func play_action_duel() -> bool:
 	close_scene()
 	show_world()
 	action_expeditions=true
+	if game.data.herbs<2:
+		game.plant(1,0)
+		game.advance()
+		game.advance()
+		game.harvest(1)
+	var herbs_before: int = game.data.herbs
+	if herbs_before<2:
+		return false
+	open_scene("garden")
+	find_text_button(modal,"丹房备战").pressed.emit()
+	find_text_button(modal,"炼制 · 2 草 / 14 石").pressed.emit()
+	if game.data.herbs!=herbs_before-2 or game.data.remedies[Expedition.Remedy.FOCUS]!=1:
+		return false
+	if is_instance_valid(toast_panel):
+		toast_panel.free()
+	await capture("remedies-workshop")
+	close_scene()
 	open_expedition()
+	find_text_button(modal,"丹房备战 · 未携带").pressed.emit()
+	find_text_button(modal,"携带凝锋丸").pressed.emit()
+	await capture("remedies-packed",.06)
 	find_text_button(modal,"启程入境").pressed.emit()
+	if game.data.expedition.remedy!=Expedition.Remedy.FOCUS or game.data.remedies[Expedition.Remedy.FOCUS]!=0:
+		return false
 	choose_node("trail")
 	if not is_instance_valid(duel) or not game.battle.action_duel or game.data.expedition.spirit_index!=-1 or game.data.expedition.guide!="独行":
 		return false
@@ -419,6 +441,23 @@ func play_action_duel() -> bool:
 		return false
 	duel.enemy.x=duel.player.x+100
 	duel.set_phase("open",6.0)
+	send_key(KEY_F,true)
+	await physics_frames(3)
+	send_key(KEY_F,false)
+	if game.battle.focus!=3 or not game.data.expedition.remedy_used or not duel.remedy_button.disabled:
+		return false
+	await capture("remedies-use",.07)
+	close_scene()
+	open_expedition()
+	find_text_button(modal,"继续战斗").pressed.emit()
+	if game.battle.focus!=3 or not duel.remedy_button.disabled:
+		return false
+	send_key(KEY_L,true)
+	await physics_frames(3)
+	send_key(KEY_L,false)
+	if game.battle.focus!=0 or game.battle.enemy>=remaining:
+		return false
+	await physics_frames(30)
 	for i in 4:
 		send_key(KEY_J,true)
 		await physics_frames(2)
@@ -433,6 +472,9 @@ func play_action_duel() -> bool:
 	find_text_button(modal,"带上战利品撤回").pressed.emit()
 	find_text_button(modal,"确认撤回").pressed.emit()
 	close_scene()
+	if game.data.expedition_last.remedy_returned!=-1 or game.data.remedies[Expedition.Remedy.FOCUS]!=0:
+		return false
+	print("REMEDIES_WINDOWED_PASS")
 	print("ACTION_DUEL_WINDOWED_PASS")
 	return true
 

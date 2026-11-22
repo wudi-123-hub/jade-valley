@@ -17,7 +17,7 @@ const JADE := Color("a7f3c6")
 const GOLD := Color("efc180")
 const EMBER := Color("ff9b79")
 const MOVEMENT := [KEY_A,KEY_D,KEY_LEFT,KEY_RIGHT,KEY_S,KEY_DOWN]
-const COMMANDS := {KEY_SPACE:"jump",KEY_W:"jump",KEY_UP:"jump",KEY_J:"slash",KEY_X:"slash",KEY_K:"dash",KEY_C:"dash",KEY_SHIFT:"dash",KEY_L:"burst",KEY_V:"burst",KEY_H:"herb",KEY_Q:"spirit"}
+const COMMANDS := {KEY_SPACE:"jump",KEY_W:"jump",KEY_UP:"jump",KEY_J:"slash",KEY_X:"slash",KEY_K:"dash",KEY_C:"dash",KEY_SHIFT:"dash",KEY_L:"burst",KEY_V:"burst",KEY_H:"herb",KEY_Q:"spirit",KEY_F:"remedy"}
 
 var stats: Dictionary
 var boss: bool
@@ -72,6 +72,7 @@ var hp_label: Label
 var foe_label: Label
 var help_label: Label
 var notice_label: Label
+var remedy_button: Button
 var player_name: String
 var technique: String
 var technique_color: Color
@@ -157,6 +158,9 @@ func _ready() -> void:
 	notice_label=ui.label(self,"",Rect2(473,223,494,47),21,GOLD,true,true)
 	notice_label.add_theme_color_override("font_outline_color",Color("152b31"))
 	notice_label.add_theme_constant_override("outline_size",5)
+	if stats.get("remedy",-1)>=0:
+		remedy_button=ui.button(self,"",Rect2(1103,183,242,40),func(): buffer.remedy=.14,UI.GOLD)
+		remedy_button.focus_mode=Control.FOCUS_NONE
 	refresh_hud()
 
 func refresh_hud() -> void:
@@ -169,6 +173,13 @@ func refresh_hud() -> void:
 	if charges>0:
 		supplies+="   ·   Q  灵契"
 	help_label.text="A D  移动   ·   空格  跳跃   ·   J  普攻   ·   S + J  下击   ·   K  闪避   ·   L  "+technique+supplies
+	if is_instance_valid(remedy_button):
+		var status := Expedition.remedy_block(stats)
+		var recipe: Dictionary = Expedition.REMEDIES[stats.remedy]
+		var suffix := " · 护阵中" if stats.get("remedy_ward",0)>0 else (" · 已用" if stats.remedy_used else "")
+		remedy_button.text="[F] "+recipe.name+suffix
+		remedy_button.disabled=not status.is_empty()
+		remedy_button.tooltip_text=recipe.hint if status.is_empty() else status
 
 func _notification(what: int) -> void:
 	if what==NOTIFICATION_WM_WINDOW_FOCUS_OUT:
@@ -281,6 +292,8 @@ func update_player(dt: float) -> void:
 		use_herb()
 	elif buffer.erase("spirit"):
 		use_spirit()
+	elif buffer.erase("remedy"):
+		use_remedy()
 
 func land(height: float) -> void:
 	player.y=height
@@ -348,6 +361,17 @@ func use_herb() -> void:
 	callout("灵草疗伤 +%d" % amount)
 	changed.emit()
 	refresh_hud()
+	sounded.emit("chime")
+
+func use_remedy() -> void:
+	var message := Expedition.apply_remedy(stats)
+	if message.is_empty():
+		return
+	cooldown=.28
+	callout(message)
+	impact(player+Vector2(0,-65),JADE)
+	refresh_hud()
+	changed.emit()
 	sounded.emit("chime")
 
 func use_spirit() -> void:
@@ -442,6 +466,10 @@ func damage_player(force: int) -> bool:
 		amount=maxi(0,amount-14)
 		stats.relic_spent=true
 		callout("潮甲印护体")
+	var warded := Expedition.absorb_remedy_ward(stats,amount)
+	amount-=warded
+	if warded>0:
+		callout("镇煞符 · 减伤 %d" % warded)
 	stats.hp=maxi(0,stats.hp-amount)
 	immune=.85
 	var away := signf(player.x-enemy.x)
