@@ -350,6 +350,7 @@ func send_key(code: Key, pressed: bool) -> void:
 	event.physical_keycode=code
 	event.pressed=pressed
 	Input.parse_input_event(event)
+	Input.flush_buffered_events()
 
 func physics_frames(count: int) -> void:
 	for i in count:
@@ -456,7 +457,6 @@ func play_action_duel() -> bool:
 	duel.set_phase("open",6.0)
 	await physics_frames(2)
 	send_key(KEY_F,true)
-	Input.flush_buffered_events()
 	await physics_frames(3)
 	send_key(KEY_F,false)
 	if game.battle.focus!=3 or not game.data.expedition.remedy_used or not duel.remedy_button.disabled:
@@ -468,6 +468,7 @@ func play_action_duel() -> bool:
 	find_text_button(modal,"继续战斗").pressed.emit()
 	if game.battle.focus!=3 or not duel.remedy_button.disabled:
 		return false
+	await physics_frames(2)
 	send_key(KEY_L,true)
 	await physics_frames(3)
 	send_key(KEY_L,false)
@@ -593,7 +594,6 @@ func play_imprints() -> bool:
 	duel.set_phase("tell",.75)
 	await physics_frames(2)
 	send_key(KEY_L,true)
-	Input.flush_buffered_events()
 	await physics_frames(3)
 	send_key(KEY_L,false)
 	if game.battle.focus!=1 or not game.battle.imprint_spent or duel.phase!="open":
