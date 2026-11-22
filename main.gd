@@ -1953,9 +1953,35 @@ func smoke_test() -> void:
 	print("COURIER_SMOKE_", "PASS" if courier else "FAIL")
 	var teaching := smoke_teaching()
 	print("TEACHING_SMOKE_", "PASS" if teaching else "FAIL")
+	var riposte := smoke_riposte()
+	print("RIPOSTE_SMOKE_", "PASS" if riposte else "FAIL")
 	music.free()
 	sfx.free()
-	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies and seal and imprints and courier and teaching else 1)
+	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies and seal and imprints and courier and teaching and riposte else 1)
+
+func smoke_riposte() -> bool:
+	var duel_stats := {"expedition_node":"trail","tier":0,"result":0,"hp":90,"maxhp":90,"enemy":65,"maxenemy":65,"focus":0,"relic":-1}
+	var arena := ActionDuel.new()
+	arena.setup(duel_stats,0,-1,0,false,true)
+	arena.phase="attack"
+	arena.dash=.10
+	var ok: bool = not arena.damage_player(15) and duel_stats.hp==90 and arena.move_hit and arena.riposte_time>.90
+	arena.riposte_time=.53
+	ok=ok and not arena.damage_player(15) and is_equal_approx(arena.riposte_time,.53)
+	arena.snapshot()
+	arena.free()
+	arena=ActionDuel.new()
+	arena.setup(duel_stats,0,-1,0,false,true)
+	ok=ok and arena.move_hit and is_equal_approx(arena.riposte_time,.53)
+	arena.strike(false)
+	ok=ok and duel_stats.enemy==65 and arena.riposte_time>0
+	arena.player.x=arena.enemy.x-110
+	arena.strike(false)
+	ok=ok and duel_stats.enemy==43 and duel_stats.focus==2 and arena.riposte_time==0
+	arena.strike(false)
+	ok=ok and duel_stats.enemy==29 and duel_stats.focus==3
+	arena.free()
+	return ok
 
 func smoke_teaching() -> bool:
 	game=State.new()

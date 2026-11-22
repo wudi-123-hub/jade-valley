@@ -3,6 +3,7 @@ extends Control
 const UI = preload("res://ui.gd")
 const Expedition = preload("res://expedition.gd")
 const State = preload("res://state.gd")
+const DuelFx = preload("res://duel_fx.gd")
 
 signal finished(won: bool)
 signal changed
@@ -45,7 +46,9 @@ var dash_cooldown := 0.0
 var dash_used := false
 var cooldown := 0.0
 var slash_time := 0.0
-var slash_angle := 0.0
+var riposte_time := 0.0
+var enemy_flash := 0.0
+var afterimages: Array[Vector2] = []
 var immune := 0.0
 var reduction := 0
 var phase := "wait"
@@ -80,6 +83,7 @@ var technique: String
 var technique_color: Color
 var technique_profile: Dictionary
 var burst_time := 0.0
+var fx: Control
 
 func setup(values: Dictionary, herbs_count: int, spirit_id: int, spirit_charges: int, animate: bool, tutorial: bool, style := 0, display_name := "掌门") -> void:
 	stats=values
@@ -106,6 +110,7 @@ func setup(values: Dictionary, herbs_count: int, spirit_id: int, spirit_charges:
 	dash_cooldown=snapshot.get("dash_cooldown",dash_cooldown)
 	dash_used=snapshot.get("dash_used",dash_used)
 	dash=snapshot.get("dash",dash)
+	riposte_time=snapshot.get("riposte_time",0.0)
 	on_ground=snapshot.get("on_ground",on_ground)
 	coyote=snapshot.get("coyote",coyote)
 	immune=snapshot.get("immune",immune)
@@ -152,6 +157,9 @@ func _ready() -> void:
 	mist_light.fill_from=Vector2(.5,.5)
 	mist_light.fill_to=Vector2(1,.5)
 	mist_light.gradient=light
+	fx=DuelFx.new()
+	fx.animate=motion
+	ui.place(fx,self,Rect2(0,0,1440,900))
 	var site := "悬云观" if boss else ("封灯台" if seal_trial else "断灯栈道")
 	ui.label(self,"青龙谷  /  "+site,Rect2(77,29,468,42),24,UI.PAPER,false,true)
 	ui.label(self,"横版试炼" if practice else "遗灯秘境",Rect2(76,72,400,28),15,GOLD)
@@ -221,6 +229,8 @@ func _physics_process(dt: float) -> void:
 	if not active or not focused:
 		return
 	clock+=dt
+	fx.advance(dt)
+	enemy_flash=maxf(0,enemy_flash-dt)
 	feedback_time=maxf(0,feedback_time-dt)
 	for item in effects:
 		item.life-=dt
@@ -250,6 +260,8 @@ func notice() -> String:
 		return "破阵成功" if stats.result>0 else "气血耗尽"
 	if phase=="tell":
 		return {"rush":"蓄势冲锋 · 跳起或闪避","wave":"震地将至 · 跳过震波","slam":"锁定落点 · 离开红圈"}[move]
+	if riposte_time>0:
+		return "擦招成功 · J 抢势反击"
 	if phase=="open" and boss:
 		return "甲心外露 · 现在反击"
 	return feedback if feedback_time>0 else ""
@@ -260,6 +272,7 @@ func update_player(dt: float) -> void:
 	burst_time=maxf(0,burst_time-dt)
 	immune=maxf(0,immune-dt)
 	dash_cooldown=maxf(0,dash_cooldown-dt)
+	riposte_time=maxf(0,riposte_time-dt)
 	coyote=.11 if on_ground else maxf(0,coyote-dt)
 	var stride := float(int(held.get(KEY_D,false) or held.get(KEY_RIGHT,false))-int(held.get(KEY_A,false) or held.get(KEY_LEFT,false)))
 	if dash<=0 and stride!=0:
@@ -278,12 +291,18 @@ func update_player(dt: float) -> void:
 		on_ground=false
 	var before := player
 	if dash>0:
+		if motion and int(clock*60)%2==0:
+			afterimages.push_front(player)
+			if afterimages.size()>4:
+				afterimages.pop_back()
 		dash-=dt
 		velocity.x=face*1020
 		velocity.y=0
 		if motion and int(clock*60)%2==0:
 			spark(player+Vector2(-face*15,-45),JADE,Vector2(-face*260,0),.16)
 	else:
+		if not afterimages.is_empty():
+			afterimages.pop_back()
 		velocity.x=move_toward(velocity.x,stride*340,(3200.0 if stride!=0 else 4300.0)*dt)
 		velocity.y=minf(980,velocity.y+1660*dt)
 	player+=velocity*dt
@@ -319,12 +338,13 @@ func enemy_box() -> Rect2:
 func strike(down: bool) -> void:
 	var diving := down and not on_ground
 	cooldown=.31
-	slash_time=.19
-	slash_angle=PI*.5 if diving else (0.0 if face>0 else PI)
+	slash_time=.23
 	var length: int = technique_profile.get("basic",152)
+	if is_instance_valid(fx):
+		fx.swing(player+Vector2(0,-32 if diving else -64),face,technique_profile.effect,length,diving)
 	var sword := Rect2(player+Vector2(-63,-38),Vector2(126,134)) if diving else Rect2(player+Vector2(-length-5 if face<0 else 5,-96),Vector2(length,106))
 	if not sword.intersects(enemy_box()):
-		sounded.emit("sword")
+		sounded.emit("fx-slash")
 		return
 	if diving:
 		velocity.y=-543
@@ -332,11 +352,18 @@ func strike(down: bool) -> void:
 	var marked: int = stats.get("hero_mark",0)
 	var damage := (18 if diving else 14)+int(stats.get("slash",0))+marked
 	stats.erase("hero_mark")
+	var riposte := riposte_time>0
+	if riposte:
+		riposte_time=0
+		callout("抢势反击 · 伤害 +8 · 剑意 +2")
 	if boss and phase!="open":
 		damage=ceili(damage*.38)
-		callout("甲壳护身 · 等它露出甲心")
-	stats.focus=mini(3,stats.focus+1)
-	damage_enemy(damage)
+		if not riposte:
+			callout("甲壳护身 · 等它露出甲心")
+	if riposte:
+		damage+=8
+	stats.focus=mini(3,stats.focus+1+int(riposte))
+	damage_enemy(damage,riposte,"fx-impact")
 	if marked>0:
 		callout("烛印引爆 · 追击 +%d" % marked)
 
@@ -346,12 +373,15 @@ func burst() -> void:
 		return
 	stats.focus=0
 	cooldown=.40
-	slash_time=.25
-	burst_time=.34
+	slash_time=0
+	burst_time=.36
 	callout(technique)
-	slash_angle=0 if face>0 else PI
 	var delta := enemy.x-player.x
-	if delta*face>=-28 and absf(delta)<int(technique_profile.reach) and FLOOR-player.y<139:
+	var in_reach := delta*face>=-28 and absf(delta)<int(technique_profile.reach) and FLOOR-player.y<139
+	if is_instance_valid(fx):
+		var target := enemy_box().get_center() if in_reach else player+Vector2(face*int(technique_profile.reach)*.73,-72)
+		fx.cast(player+Vector2(face*33,-70),target,face,technique_profile.effect)
+	if in_reach:
 		var damage: int = 27+int(stats.get("spell",0))+int(technique_profile.damage)
 		if phase=="tell" and (move!="slam" or technique_profile.get("interrupt",false)):
 			set_phase("open",1.32)
@@ -364,18 +394,20 @@ func burst() -> void:
 		if restored>0:
 			stats.hp+=restored
 			callout("月轮回光 · 气血 +%d" % restored)
+			if is_instance_valid(fx):
+				fx.ward(player+Vector2(0,-69),Color("#c7d3ff"))
 		var ward: int = technique_profile.get("guard",0)
 		if ward>0:
 			reduction=maxi(reduction,ward)
 			callout("护身 · 下次受击少承受 %d" % ward)
+			if is_instance_valid(fx):
+				fx.ward(player+Vector2(0,-69),technique_color)
 		stats.focus=mini(3,stats.focus+int(technique_profile.get("focus",0)))
 		stats.hero_mark=int(technique_profile.get("mark",0))
-		damage_enemy(damage)
+		damage_enemy(damage,true,"fx-surge")
 	else:
 		changed.emit()
-	for i in 7:
-		spark(player+Vector2(38*face,-53),technique_color,Vector2(face*(420+i*55),i*19-55),.36)
-	sounded.emit("chime")
+		sounded.emit("fx-slash")
 
 func use_herb() -> void:
 	if herbs<1 or stats.hp>=stats.maxhp:
@@ -492,7 +524,17 @@ func attack_enemy(dt: float, enraged: bool) -> void:
 		move_hit=true
 
 func damage_player(force: int) -> bool:
-	if dash>0 or immune>0:
+	if dash>0:
+		if phase=="attack" and not move_hit:
+			move_hit=true
+			riposte_time=.98
+			callout("擦招成功 · J 抢势反击")
+			if is_instance_valid(fx):
+				fx.ward(player+Vector2(0,-62),JADE)
+			sounded.emit("fx-parry")
+			changed.emit()
+		return false
+	if immune>0:
 		return false
 	var amount := maxi(1,force-guard-reduction)
 	reduction=0
@@ -510,6 +552,8 @@ func damage_player(force: int) -> bool:
 	velocity=Vector2((away if away!=0 else -face)*380,-224)
 	if amount>0:
 		impact(player+Vector2(0,-49),EMBER)
+		if is_instance_valid(fx):
+			fx.hit(player+Vector2(0,-67),EMBER)
 	if stats.hp==0:
 		stats.result=-1
 	refresh_hud()
@@ -517,22 +561,25 @@ func damage_player(force: int) -> bool:
 	sounded.emit("guard")
 	return true
 
-func damage_enemy(amount: int) -> void:
+func damage_enemy(amount: int,heavy := false,cue := "fx-impact") -> void:
+	var hit_at := enemy_box().get_center()
 	stats.enemy=maxi(0,stats.enemy-amount)
 	if stats.enemy==0:
 		stats.result=1
 	if not boss and phase=="wait":
 		enemy.x=clampf(enemy.x+face*15,LEFT+37,RIGHT-37)
-	impact(enemy+Vector2(0,-49),GOLD)
-	freeze=.054 if motion else .020
+	enemy_flash=.13 if motion else .06
+	if is_instance_valid(fx):
+		fx.hit(hit_at,technique_color,heavy,boss and phase!="open",.096 if cue=="fx-surge" and motion else 0.0)
+	freeze=(.085 if heavy else .054) if motion else .020
 	changed.emit()
 	refresh_hud()
-	sounded.emit("sword")
+	sounded.emit(cue)
 
 func snapshot() -> void:
 	stats.duel_snapshot={
 		"player":player,"enemy_x":enemy.x,"velocity":velocity,"face":face,"enemy_face":enemy_face,
-		"dash_cooldown":dash_cooldown,"dash_used":dash_used,"dash":dash,"on_ground":on_ground,"coyote":coyote,
+		"dash_cooldown":dash_cooldown,"dash_used":dash_used,"dash":dash,"on_ground":on_ground,"coyote":coyote,"riposte_time":riposte_time,
 		"immune":immune,"reduction":reduction,"phase":phase,"phase_time":phase_time,"phase_span":phase_span,
 		"move":move,"move_hit":move_hit,"slam_x":slam_x,"wave":wave,"move_index":move_index
 	}
@@ -545,9 +592,9 @@ func impact(at: Vector2, tint: Color) -> void:
 		for i in 12:
 			spark(at,tint,Vector2.from_angle(i*TAU/12)*(115+25*(i%4)),.31+.025*(i%3))
 
-func painted_sprite(art: Texture2D, at: Vector2, target_height: float, direction: float, tint: Color) -> void:
+func painted_sprite(art: Texture2D, at: Vector2, target_height: float, direction: float, tint: Color, lean := 0.0, squeeze := Vector2.ONE) -> void:
 	var span := target_height*art.get_size().aspect()
-	draw_set_transform(at,0,Vector2(direction,1))
+	draw_set_transform(at,lean,Vector2(direction,1)*squeeze)
 	draw_texture_rect(art,Rect2(-span*.5,-target_height,span,target_height),false,tint)
 	draw_set_transform(Vector2.ZERO)
 
@@ -599,14 +646,29 @@ func _draw() -> void:
 	var hero_tint := Color(1,.70,.65,.82) if immune>0 and int(clock*24)%2==0 else Color.WHITE
 	if dash>0:
 		hero_tint=Color(.74,1,.95,.72)
-	painted_sprite(hero_art,player+Vector2(0,2),145.0+(sin(clock*19)*3 if motion and on_ground and absf(velocity.x)>20 else 0),face,hero_tint)
+	for i in range(afterimages.size()-1,-1,-1):
+		painted_sprite(hero_art,afterimages[i]+Vector2(0,2),141.0,face,Color(technique_color,.21-i*.037),face*.19,Vector2(1.09,.91))
+	var run_pose := sin(clock*22) if on_ground and absf(velocity.x)>20 else 0.0
+	var swing_pose := sin(PI*clampf(1.0-slash_time/.23,0,1))
+	var cast_pose := sin(PI*clampf(1.0-burst_time/.36,0,1))
+	var lean := face*(.22 if dash>0 else .16*swing_pose+.11*cast_pose+.025*run_pose)
+	var step := Vector2(face*(13*swing_pose+16*cast_pose),2-absf(run_pose)*4)
+	var pose := Vector2(1.03+.09*swing_pose,.96+.10*cast_pose-.08*swing_pose)
+	if not motion:
+		lean=0.0
+		step=Vector2(0,2)
+		pose=Vector2.ONE
+	painted_sprite(hero_art,player+step,145.0,face,hero_tint,lean,pose)
 	var rise := -maxf(0,sin(PI*phase_time/phase_span))*93 if phase=="attack" and move=="slam" and phase_time>.23 else 0.0
 	var enemy_tint := Color(1,.82,.65) if phase=="tell" else (Color(.89,1,.87) if phase=="open" else Color.WHITE)
-	painted_sprite(enemy_art,enemy+Vector2(0,3+rise),235 if boss else (139 if seal_trial else 107),enemy_face,enemy_tint)
-	if slash_time>0:
-		draw_basic_attack()
-	if burst_time>0:
-		draw_technique()
+	var hit_pose := enemy_flash/.13 if motion else 0.0
+	var threat_pose := (1.0-phase_time/phase_span) if phase=="tell" and motion else 0.0
+	var enemy_tilt := enemy_face*(threat_pose*.14-hit_pose*.16)
+	var recoil := Vector2(-enemy_face*hit_pose*11,3+rise)
+	var enemy_squeeze := Vector2(1.0+threat_pose*.08,.99-threat_pose*.13+hit_pose*.04)
+	if enemy_flash>0:
+		enemy_tint=enemy_tint.lerp(Color(technique_color.lightened(.64)),clampf(enemy_flash*4.8,0,.72))
+	painted_sprite(enemy_art,enemy+recoil,235 if boss else (139 if seal_trial else 107),enemy_face,enemy_tint,enemy_tilt,enemy_squeeze)
 	if reduction>0:
 		draw_arc(player+Vector2(0,-66),73,0,TAU,38,Color(technique_color,.38),2,true)
 	if stats.get("hero_mark",0)>0:
@@ -625,78 +687,44 @@ func _draw() -> void:
 		draw_colored_polygon(shape,GOLD if stats.focus>i else Color("365450"))
 	if dash_cooldown>0:
 		draw_bar(Rect2(198,191,93,5),1-dash_cooldown/.66,JADE)
+	if riposte_time>0:
+		draw_bar(Rect2(309,191,108,5),riposte_time/.98,GOLD)
 
 func draw_bar(rect: Rect2, fill: float, tint: Color) -> void:
 	draw_rect(rect.grow(2),Color("355753"))
 	draw_rect(rect,Color("142c2e"))
 	draw_rect(Rect2(rect.position,Vector2(rect.size.x*fill,rect.size.y)),tint)
 
-func draw_technique() -> void:
-	var fade := burst_time/.34
-	var reach := float(technique_profile.reach)
-	var origin := player+Vector2(face*(48+reach*.52*(1-fade)),-64)
-	var light := Color(technique_color,fade*.8)
-	match String(technique_profile.effect):
-		"arrow":
-			for i in 3:
-				var point := origin+Vector2(face*i*38,-19+i*18)
-				draw_line(point-Vector2(face*(174-i*26),0),point,light,6-i,true)
-				draw_line(point,point+Vector2(-face*19,-8),Color(technique_color.lightened(.6),fade),2,true)
-		"staff":
-			var tip := origin+Vector2(face*105,-54+92*(1-fade))
-			draw_line(player+Vector2(7*face,-63),tip,light,16,true)
-			draw_line(player+Vector2(7*face,-63),tip,Color(1,1,.76,fade),4,true)
-		"shield","seal","moon":
-			var pivot := (player+origin)*.5 if technique_profile.effect!="seal" else origin
-			for i in 3:
-				draw_arc(pivot,39+26*i+63*(1-fade),0,TAU,48,Color(technique_color,fade*(.72-i*.16)),5-i,true)
-			if technique_profile.effect=="moon":
-				draw_arc(origin,59,-1.3,1.3,36,light,15,true)
-		_:
-			var spread := .57 if technique_profile.effect=="ember" else 1.1
-			for i in 4:
-				var crest := origin-Vector2(face*i*21,0)
-				draw_arc(crest,53+i*12,slash_angle-spread,slash_angle+spread,32,Color(technique_color,fade*(.92-.16*i)),9-i*2,true)
-
-func draw_basic_attack() -> void:
-	var diving := slash_angle==PI*.5
-	var pivot := player+Vector2(0,-24 if diving else -47)
-	var tint := technique_color.lightened(.26)
-	var fade := minf(1.0,slash_time/.19)
-	var reach := float(technique_profile.get("basic",152))
-	if technique_profile.effect=="arrow" and not diving:
-		var tip := pivot+Vector2(face*(48+reach*(1-fade)),-14)
-		draw_line(tip-Vector2(face*89,0),tip,Color(tint,fade*.8),5,true)
-		draw_line(tip,tip-Vector2(face*20,-7),Color(tint,fade),2,true)
-	elif technique_profile.effect=="moon" and not diving:
-		var center := pivot+Vector2(face*(40+reach*.68*sin(PI*(1-fade))),-11)
-		draw_arc(center,32,slash_angle-1.46,slash_angle+1.46,28,Color(tint,fade*.85),6,true)
-		draw_arc(center,24,slash_angle-.97,slash_angle+.97,24,Color(tint,fade*.54),2,true)
-	else:
-		var span := 80.0 if diving else reach*.53
-		for i in 4:
-			draw_arc(pivot,span+i*7,slash_angle-1.01+i*.10,slash_angle+.94,26,Color(tint,fade*(.56-i*.08)),8-i,true)
-
 func draw_attack() -> void:
 	if phase=="tell":
-		var pulse := .24+.41*(1-phase_time/phase_span)
+		var progress := clampf(1-phase_time/phase_span,0,1)
+		var pulse := .39+.59*progress
 		var center := Vector2(slam_x if move=="slam" else enemy.x,FLOOR-3)
 		if move=="rush":
 			var end := clampf(enemy.x+enemy_face*390,LEFT,RIGHT)
-			draw_line(center,Vector2(end,FLOOR-3),Color(EMBER,pulse),6,true)
+			var track := Rect2(minf(end,center.x),FLOOR-21,absf(end-center.x),24)
+			draw_rect(track,Color(EMBER,pulse*.27))
+			draw_line(center,Vector2(end,FLOOR-3),Color("#5c1425",pulse),10,true)
+			draw_line(center.lerp(Vector2(end,FLOOR-3),progress),center,Color(EMBER,pulse),4,true)
 			for i in 4:
 				var at := center.lerp(Vector2(end,FLOOR-3),float(i+1)/5)
-				draw_polyline(PackedVector2Array([at+Vector2(-enemy_face*10,-20),at+Vector2(enemy_face*4,-11),at+Vector2(-enemy_face*10,-2)]),Color(EMBER,pulse),3,true)
+				draw_polyline(PackedVector2Array([at+Vector2(-enemy_face*12,-25),at+Vector2(enemy_face*7,-13),at+Vector2(-enemy_face*12,0)]),Color(EMBER,pulse),3,true)
 		else:
 			draw_set_transform(center,0,Vector2(1,.18))
-			draw_circle(Vector2.ZERO,146,Color(EMBER,pulse*.30),true,-1,true)
-			draw_circle(Vector2.ZERO,146,Color(EMBER,pulse),false,5,true)
+			draw_circle(Vector2.ZERO,146,Color("#561628",.75),true,-1,true)
+			draw_circle(Vector2.ZERO,146,Color(EMBER,pulse),false,5.5,true)
+			draw_arc(Vector2.ZERO,127,-PI*.5,-PI*.5+maxf(.02,progress)*TAU,45,Color("#fff4b5",pulse),5,true)
 			draw_set_transform(Vector2.ZERO)
+			if move=="slam":
+				draw_line(center-Vector2(0,153),center-Vector2(0,27),Color(EMBER,pulse*.8),2.5,true)
+				draw_polyline(PackedVector2Array([center+Vector2(-14,-49),center+Vector2(0,-28),center+Vector2(14,-49)]),Color(EMBER,pulse),3,true)
 	if phase=="attack" and move=="wave":
 		for side in [-1,1]:
 			var point := Vector2(enemy.x+side*wave,FLOOR-7)
-			draw_arc(point,36,PI,TAU,18,Color(EMBER,.89),7,true)
-			draw_circle(point,10,GOLD,true,-1,true)
+			draw_arc(point,44,PI,TAU,28,Color("#b43830",.92),19,true)
+			draw_arc(point,41,PI+.13,TAU-.22,27,EMBER,8,true)
+			draw_arc(point,36,PI+.44,TAU-.46,25,Color("#fff0a2",.88),2.4,true)
+			draw_line(point-Vector2(side*108,0),point+Vector2(side*22,0),Color(EMBER,.88),4,true)
 	if phase=="attack" and move=="slam" and phase_time<=.23:
 		var center := Vector2(slam_x,FLOOR-6)
 		for i in 7:

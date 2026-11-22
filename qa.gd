@@ -122,6 +122,9 @@ func _ready() -> void:
 	if not await play_teaching():
 		get_tree().quit(25)
 		return
+	if not await play_combat_fx():
+		get_tree().quit(27)
+		return
 	game.data.rank=3
 	game.migrate(1)
 	await capture("summer")
@@ -835,18 +838,87 @@ func play_teaching() -> bool:
 	return true
 
 func capture_rite() -> void:
+	await record_sequence("rite",72,50,70,"teaching-result")
+
+func play_combat_fx() -> bool:
+	game.data.expedition_commissions=2
+	game.data.story_chapter=2
+	game.data.expedition_wins=[1,1,1,0]
+	game.data.motion=true
+	if not game.choose_hero(State.Hero.QINGLONG):
+		return false
+	practice_boss=true
+	open_scene("practice",true)
+	duel.player.x=439
+	duel.enemy.x=622
+	duel.enemy_face=-1
+	duel.move="rush"
+	duel.set_phase("attack",.50)
+	var hp: int = duel.stats.hp
+	send_key(KEY_K,true)
+	await physics_frames(6)
+	send_key(KEY_K,false)
+	if duel.riposte_time<=0 or duel.stats.hp!=hp or not duel.move_hit:
+		printerr("Expected a perfect dodge through the guardian's active rush.")
+		return false
+	await physics_frames(9)
+	duel.set_phase("open",2.0)
+	duel.enemy.x=duel.player.x+112
+	duel.face=1
+	var armor: int = duel.stats.enemy
+	send_key(KEY_J,true)
+	await physics_frames(3)
+	send_key(KEY_J,false)
+	if duel.stats.enemy!=armor-22 or duel.stats.focus!=2 or duel.riposte_time>0:
+		printerr("Expected a single 22-point riposte with two focus.")
+		return false
+	await capture("combat-riposte",.04)
+	close_scene()
+	var showcase := ["tide","dragon","staff","ember","wind","seal","moon","arrow","shield"]
+	for style in State.HEROES.size():
+		if not game.choose_hero(style):
+			return false
+		practice_boss=true
+		open_scene("practice",true)
+		duel.player.x=505
+		duel.enemy.x=style*12+716
+		duel.set_phase("open",2.0)
+		duel.stats.focus=3
+		duel.stats.hp=62
+		send_key(KEY_L,true)
+		await physics_frames(2)
+		send_key(KEY_L,false)
+		if duel.stats.enemy>=duel.stats.maxenemy or duel.fx.events.is_empty():
+			printerr("Expected rendered skill hit for ",State.HEROES[style])
+			return false
+		var frame_name := "combat-"+String(showcase[style])
+		if OS.has_environment("JADE_QA_RECORD_FX") and style in [State.Hero.YING,State.Hero.WUKONG,State.Hero.QINGLONG,State.Hero.CHANG_E]:
+			await record_sequence(frame_name,23,50,4,frame_name)
+		else:
+			await capture(frame_name,.20)
+		close_scene()
+	game.data.motion=false
+	open_practice()
+	if duel.fx.animate:
+		return false
+	close_scene()
+	game.data.motion=true
+	print("COMBAT_FX_AND_RIPOSTE_WINDOWED_PASS")
+	return true
+
+func record_sequence(prefix: String,count: int,interval: int,proof_frame: int,proof_name: String) -> void:
 	var start := Time.get_ticks_msec()
 	var directory := OS.get_environment("JADE_QA_OUT")
-	for frame in 72:
-		var wait := (start+frame*50-Time.get_ticks_msec())*.001
+	for frame in count:
+		var wait := (start+frame*interval-Time.get_ticks_msec())*.001
 		if wait>0:
 			await get_tree().create_timer(wait).timeout
 		await RenderingServer.frame_post_draw
 		var shot := get_viewport().get_texture().get_image()
-		if frame==70:
-			shot.save_png(directory+"/teaching-result.png")
+		if frame==proof_frame:
+			shot.save_png(directory+"/"+proof_name+".png")
 		shot.resize(960,600,Image.INTERPOLATE_BILINEAR)
-		shot.save_jpg(directory+"/rite-%03d.jpg" % frame,.90)
+		shot.save_jpg(directory+"/%s-%03d.jpg" % [prefix,frame],.89)
 
 func save_test_checkpoint(name: String) -> String:
 	var saved := State.new()
