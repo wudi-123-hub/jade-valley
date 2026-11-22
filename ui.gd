@@ -1,5 +1,8 @@
 extends RefCounted
 
+const SUNLIT_ART = preload("res://sunlit_art.gdshader")
+var sunlit_material := ShaderMaterial.new()
+
 const INK := Color("#0f201e")
 const PANEL := Color("#142925")
 const WELL := Color("#1a3630")
@@ -185,6 +188,10 @@ func icon(key: String) -> Texture2D:
 func picture(parent: Node, tex: Texture2D, rect: Rect2, tint := Color.WHITE,cover := false) -> TextureRect:
 	var view := TextureRect.new()
 	view.texture = tex
+	if is_instance_valid(tex) and tex.resource_path.ends_with(".webp"):
+		if sunlit_material.shader==null:
+			sunlit_material.shader=SUNLIT_ART
+		view.material=sunlit_material
 	view.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	view.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED if cover else TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	view.modulate = tint

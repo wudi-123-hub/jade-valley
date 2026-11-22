@@ -1771,4 +1771,31 @@ func smoke_action() -> bool:
 	game.leave_battle()
 	ok=ok and game.resume_expedition_battle() and game.battle.duel_snapshot.player==arena.player
 	arena.free()
+	return ok and smoke_action_guardian()
+
+func smoke_action_guardian() -> bool:
+	var arena := ActionDuel.new()
+	var stats := {"expedition_node":"boss","tier":0,"result":0,"hp":90,"maxhp":90,"enemy":87,"maxenemy":87,"focus":0,"relic":-1}
+	arena.setup(stats,1,-1,0,false,true)
+	var ok := true
+	for expected in ["rush","wave","slam"]:
+		arena.set_phase("wait",0.0)
+		arena.update_enemy(1.0/60.0)
+		ok=ok and arena.phase=="tell" and arena.move==expected
+	arena.player.x=arena.enemy.x-230
+	arena.player.y=arena.FLOOR-82
+	arena.move="wave"
+	arena.wave=220.0
+	arena.attack_enemy(1.0/60.0,false)
+	ok=ok and stats.hp==90
+	arena.player.y=arena.FLOOR
+	arena.attack_enemy(1.0/60.0,false)
+	ok=ok and stats.hp==65
+	stats.focus=3
+	arena.set_phase("tell",.5)
+	arena.burst()
+	ok=ok and arena.phase=="open" and stats.focus==0 and stats.enemy==60
+	arena.use_herb()
+	ok=ok and arena.herbs==0 and stats.hp==90
+	arena.free()
 	return ok

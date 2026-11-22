@@ -37,7 +37,7 @@ func _ready() -> void:
 	for i in 66:
 		flakes.append(Vector4(random.randf(),random.randf(),random.randf_range(.035,.081),random.randf_range(1,4.3)))
 	var cloud := Gradient.new()
-	cloud.colors = PackedColorArray([Color(0.82,.96,.94,.27),Color(0.8,.95,.92,0)])
+	cloud.colors = PackedColorArray([Color(0.97,.94,.85,.31),Color(0.83,.93,.96,0)])
 	fog = GradientTexture2D.new()
 	fog.width = 96
 	fog.height = 96
@@ -177,7 +177,8 @@ func draw_weather() -> void:
 			draw_colored_polygon(PackedVector2Array([center-direction,center-wing,center+direction,center+wing*.72]),particle)
 		else:
 			draw_circle(center,mote.w*.61,particle,true,-1,true)
-	for i in 4:
-		var width := size.x * (.42+.12*sin(float(i)*9))
-		var center := Vector2(fposmod(timer*.027+i*.31,1.2)*size.x-size.x*.08,size.y*(.14+i*.235))
-		draw_texture_rect(fog,Rect2(center-Vector2(width*.5,49),Vector2(width,98)),false,Color(1,1,1,.59))
+	for i in 5:
+		var width := size.x * (.52+.16*sin(float(i)*9))
+		var center := Vector2(fposmod(timer*(.016+.002*i)+i*.29,1.36)*size.x-size.x*.16,size.y*(.16+i*.17))
+		var height := 118.0+13*i
+		draw_texture_rect(fog,Rect2(center-Vector2(width*.5,height*.5),Vector2(width,height)),false,Color(1,1,1,.54))

@@ -152,7 +152,8 @@ func refresh_hud() -> void:
 	if not is_instance_valid(hp_label):
 		return
 	hp_label.text="气血 %d / %d" % [stats.hp,stats.maxhp]
-	foe_label.text="%d / %d" % [stats.enemy,stats.maxenemy]
+	var rage := " · 激怒" if boss and stats.enemy*2<=stats.maxenemy and stats.result==0 else ""
+	foe_label.text="%d / %d%s" % [stats.enemy,stats.maxenemy,rage]
 	var supplies := "   ·   H  灵草 ×%d" % herbs if herbs>0 else ""
 	if charges>0:
 		supplies+="   ·   Q  灵契"
@@ -478,8 +479,9 @@ func terrain(x: float, y: float, span: float, depth: float) -> void:
 	if is_instance_valid(stone_art):
 		var segments := ceili(span/535)
 		var width := span/segments
+		var lip := minf(depth+5,56.0)
 		for i in segments:
-			draw_texture_rect(stone_art,Rect2(x+i*width,y-3,width+.8,depth+5),false,Color(1,.92,.79) if boss else Color(.75,.91,.88))
+			draw_texture_rect(stone_art,Rect2(x+i*width,y-3,width+.8,lip),false,Color(1,.92,.79) if boss else Color(.75,.91,.88))
 		draw_line(Vector2(x,y),Vector2(x+span,y),Color(.72,.79,.69,.63),2,true)
 		return
 	var path := PackedVector2Array([Vector2(x,y),Vector2(x+span,y),Vector2(x+span-26,y+depth),Vector2(x+span*.62,y+depth+11),Vector2(x+span*.22,y+depth-9),Vector2(x+19,y+depth-12)])

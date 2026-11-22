@@ -98,6 +98,10 @@ func _ready() -> void:
 		get_tree().quit(17)
 		return
 	game.data.rank=3
+	game.migrate(1)
+	await capture("summer")
+	game.migrate(2)
+	await capture("autumn")
 	game.migrate(3)
 	await capture("winter")
 	var isolated := OS.get_environment("JADE_QA_OUT") + "/test-save"
@@ -340,7 +344,7 @@ func play_action_duel() -> bool:
 		return false
 	await capture("duel-trail")
 	find_text_button(modal,"挑战古甲").pressed.emit()
-	if not duel.boss:
+	if not duel.boss or duel.scenery.resource_path!="res://assets/duel_depths.webp":
 		return false
 	duel.player.x=580
 	duel.enemy.x=1000
