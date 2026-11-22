@@ -1,0 +1,10 @@
+.godot/
+.import/
+builds/
+*.exe
+*.pck
+*.save
+*.tmp
+*.log
+.env
+.env.*
