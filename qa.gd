@@ -423,9 +423,11 @@ func play_action_duel() -> bool:
 	await capture("remedies-packed",.06)
 	find_text_button(modal,"启程入境").pressed.emit()
 	if game.data.expedition.remedy!=Expedition.Remedy.FOCUS or game.data.remedies[Expedition.Remedy.FOCUS]!=0:
+		printerr("Remedy was not transferred to the expedition.")
 		return false
 	choose_node("trail")
 	if not is_instance_valid(duel) or not game.battle.action_duel or game.data.expedition.spirit_index!=-1 or game.data.expedition.guide!="独行":
+		printerr("Expected a solo action battle with a remedy.")
 		return false
 	duel.player.x=duel.enemy.x-125
 	send_key(KEY_J,true)
@@ -433,18 +435,23 @@ func play_action_duel() -> bool:
 	send_key(KEY_J,false)
 	var remaining: int = game.battle.enemy
 	if remaining>=game.battle.maxenemy or game.battle.focus!=1:
+		printerr("Expected one focus after striking. Focus ",game.battle.focus," enemy ",remaining)
 		return false
 	close_scene()
 	open_expedition()
 	find_text_button(modal,"继续战斗").pressed.emit()
 	if game.battle.enemy!=remaining or game.battle.focus!=1:
+		printerr("Initial action progress changed when reopening the fight.")
 		return false
 	duel.enemy.x=duel.player.x+100
 	duel.set_phase("open",6.0)
+	await physics_frames(2)
 	send_key(KEY_F,true)
+	Input.flush_buffered_events()
 	await physics_frames(3)
 	send_key(KEY_F,false)
 	if game.battle.focus!=3 or not game.data.expedition.remedy_used or not duel.remedy_button.disabled:
+		printerr("F did not spend the remedy. Focus ",game.battle.focus," used ",game.data.expedition.remedy_used," button ",duel.remedy_button.disabled," arena focus ",duel.focused," active ",duel.active," remedy ",duel.stats.get("remedy")," scene ",scene_key)
 		return false
 	await capture("remedies-use",.07)
 	close_scene()

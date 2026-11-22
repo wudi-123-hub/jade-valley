@@ -17,7 +17,7 @@ const JADE := Color("a7f3c6")
 const GOLD := Color("efc180")
 const EMBER := Color("ff9b79")
 const MOVEMENT := [KEY_A,KEY_D,KEY_LEFT,KEY_RIGHT,KEY_S,KEY_DOWN]
-const COMMANDS := {KEY_SPACE:"jump",KEY_W:"jump",KEY_UP:"jump",KEY_J:"slash",KEY_X:"slash",KEY_K:"dash",KEY_C:"dash",KEY_SHIFT:"dash",KEY_L:"burst",KEY_V:"burst",KEY_H:"herb",KEY_Q:"spirit",KEY_F:"remedy"}
+const COMMANDS := {KEY_SPACE:"jump",KEY_W:"jump",KEY_UP:"jump",KEY_J:"slash",KEY_X:"slash",KEY_K:"dash",KEY_C:"dash",KEY_SHIFT:"dash",KEY_L:"burst",KEY_V:"burst",KEY_H:"herb",KEY_Q:"spirit"}
 
 var stats: Dictionary
 var boss: bool
@@ -159,7 +159,7 @@ func _ready() -> void:
 	notice_label.add_theme_color_override("font_outline_color",Color("152b31"))
 	notice_label.add_theme_constant_override("outline_size",5)
 	if stats.get("remedy",-1)>=0:
-		remedy_button=ui.button(self,"",Rect2(1103,183,242,40),func(): buffer.remedy=.14,UI.GOLD)
+		remedy_button=ui.button(self,"",Rect2(1103,183,242,40),use_remedy,UI.GOLD)
 		remedy_button.focus_mode=Control.FOCUS_NONE
 	refresh_hud()
 
@@ -292,8 +292,6 @@ func update_player(dt: float) -> void:
 		use_herb()
 	elif buffer.erase("spirit"):
 		use_spirit()
-	elif buffer.erase("remedy"):
-		use_remedy()
 
 func land(height: float) -> void:
 	player.y=height
@@ -364,10 +362,11 @@ func use_herb() -> void:
 	sounded.emit("chime")
 
 func use_remedy() -> void:
+	if not active or not focused:
+		return
 	var message := Expedition.apply_remedy(stats)
 	if message.is_empty():
 		return
-	cooldown=.28
 	callout(message)
 	impact(player+Vector2(0,-65),JADE)
 	refresh_hud()

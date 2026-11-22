@@ -1582,8 +1582,11 @@ func _input(event: InputEvent) -> void:
 	elif scene_key=="battle" and not is_instance_valid(duel) and event.keycode>=KEY_1 and event.keycode<=KEY_5:
 		combat(["attack","guard","spell","herb","spirit"][event.keycode-KEY_1])
 		get_viewport().set_input_as_handled()
-	elif scene_key=="battle" and not is_instance_valid(duel) and event.keycode==KEY_F:
-		combat_remedy()
+	elif scene_key=="battle" and (event.keycode==KEY_F or event.physical_keycode==KEY_F):
+		if is_instance_valid(duel):
+			duel.use_remedy()
+		else:
+			combat_remedy()
 		get_viewport().set_input_as_handled()
 	elif scene_key=="dialogue" and event.keycode==KEY_SPACE:
 		next_dialogue()
