@@ -628,6 +628,7 @@ func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := ""
 	data.expedition = {
 		"area":data.map,"rank":data.rank,"serial":data.expedition_serial,"step":0,"tier":tier,"history":[],
 		"hp":cap,"maxhp":cap,"herbs":packed+int(group==2),"coins":0,"dust":0,"combat":{},
+		"courier_dust":0,
 		"guide":data.people[guide] if guide>=0 else "独行","pet":data.pets[pet] if pet>=0 else "无随行灵兽",
 		"itinerary":forecast.steps,"route_name":forecast.name,"commission":commission,
 		"surveyed":use_scout,
@@ -770,6 +771,9 @@ func resolve_expedition_fight(won: bool) -> void:
 	run.combat.clear()
 	if not won:
 		battle.note="%s败退，带回一半灵石。" % hero_name()
+		var courier: int = run.get("courier_dust",0)
+		if courier>0:
+			battle.note+=" 归灯驿另送回 %d 灯砂。" % courier
 		finish_expedition("败退")
 		return
 	var node: String = battle.expedition_node
@@ -799,6 +803,34 @@ func resolve_expedition_fight(won: bool) -> void:
 		finish_expedition("破关")
 	else:
 		record("远征",battle.note,false)
+
+func at_courier_stop() -> bool:
+	var run: Dictionary = data.expedition
+	return not run.is_empty() and run.step==Expedition.COURIER_STOP and run.combat.is_empty()
+
+func courier_block_reason(amount: int) -> String:
+	if not at_courier_stop():
+		return "走完第三段后可在归灯驿寄存。"
+	var run: Dictionary = data.expedition
+	if run.get("courier_dust",0)>0:
+		return "本趟已经寄出一批灯砂。"
+	if amount<1 or amount>Expedition.COURIER_LIMIT:
+		return "本次可寄 1 至 %d 份灯砂。" % Expedition.COURIER_LIMIT
+	if run.coins<Expedition.COURIER_FEE:
+		return "本轮战利品须有 %d 灵石作驿费。" % Expedition.COURIER_FEE
+	if run.dust<amount:
+		return "随身战利品没有足够的灯砂。"
+	return ""
+
+func dispatch_courier(amount: int) -> bool:
+	if not courier_block_reason(amount).is_empty():
+		return false
+	var run: Dictionary = data.expedition
+	run.coins-=Expedition.COURIER_FEE
+	run.dust-=amount
+	run.courier_dust=amount
+	record("远征","交付 %d 灵石驿费，寄出 %d 灯砂。本趟结束时入账。" % [Expedition.COURIER_FEE,amount],false)
+	return true
 
 func extract_expedition() -> bool:
 	var run: Dictionary = data.expedition
@@ -840,8 +872,9 @@ func finish_expedition(result: String) -> void:
 	var bonus_dust: int = Expedition.COMMISSIONS[commission][3] if completed else 0
 	var sealed: int = run.get("sealed_dust",0)
 	var sealed_paid := sealed if result=="破关" else 0
+	var courier: int = run.get("courier_dust",0)
 	coins+=bonus_coins
-	grains+=bonus_dust+sealed_paid
+	grains+=bonus_dust+sealed_paid+courier
 	if completed:
 		data.expedition_commissions+=1
 	var new_relic := -1
@@ -861,6 +894,7 @@ func finish_expedition(result: String) -> void:
 	data.expedition_last.relic_unlocked=new_relic
 	data.expedition_last.remedy_returned=returned
 	data.expedition_last.merge({"sealed_dust":sealed,"sealed_paid":sealed_paid})
+	data.expedition_last.courier_dust=courier
 	data.expedition_last.imprint_healed=run.get("imprint_healed",0)
 	data.expedition={}
 	var note := "远征%s，入账 %d 灵石、%d 灯砂。" % [result,coins,grains]

@@ -83,6 +83,7 @@ var remedy_return := "garden"
 var duty_selection := -1
 var relic_return := "expedition"
 var imprint_return := "relics"
+var courier_amount := 1
 var route_choice := ""
 var modal_focus_nodes: Array[Button] = []
 var previous_focus: Control
@@ -601,6 +602,7 @@ func open_scene(kind: String,instant := false) -> void:
 		"relics": relic_window()
 		"imprints": imprints_window()
 		"extraction": extraction_window()
+		"courier": courier_window()
 		"expedition_result": expedition_result_window()
 		"facilities": facilities_window()
 		"master": master_window()
@@ -1155,7 +1157,7 @@ func expedition_window() -> void:
 	ui.picture(veil,expedition_art(),Rect2(0,0,477,428),Color.WHITE,true)
 	ui.box(veil,Rect2(0,197,477,231),Color(.045,.12,.095,.93),UI.BORDER,8)
 	ui.label(veil,"踏过五段山路，找到遗灯之门。",Rect2(21,206,435,36),21,UI.PAPER,false,true)
-	ui.label(veil,"气血与灵草会带进下一场战斗。主动撤回能保住已得战利品，败退只带回一半灵石。",Rect2(21,266,431,62),16,UI.PAPER,false,false,true)
+	ui.label(veil,"气血与灵草会带进下一场战斗。主动撤回可结算战利品。败退会丢失随身灯砂与灵草，灵石减半。",Rect2(21,266,431,62),16,UI.PAPER,false,false,true)
 	if region==0 and action_expeditions:
 		ui.label(veil,"青龙谷遭遇 · 横版即时斗法",Rect2(21,242,435,23),14,UI.GOLD)
 	var forecast: Dictionary = game.expedition_forecast(draft_scout)
@@ -1273,7 +1275,7 @@ func imprints_window() -> void:
 
 func expedition_plan_window() -> void:
 	var forecast: Dictionary = game.expedition_forecast(draft_scout)
-	var host := window(forecast.name,"启程前可查看全部路段，并从两份委托中接取一份。","compass",Vector2(1120,704))
+	var host := window(forecast.name,"启程前可查看全部路段。走完第三段可在归灯驿寄存灯砂。","compass",Vector2(1120,704))
 	var board := Control.new()
 	board.clip_contents=true
 	board.mouse_filter=Control.MOUSE_FILTER_IGNORE
@@ -1405,12 +1407,24 @@ func expedition_route() -> void:
 	ui.label(host,detail,Rect2(28,554,1094,44),17,UI.PAPER,false,false,true)
 	var commission_id: String = route.get("commission","")
 	var sealed: int = route.get("sealed_dust",0)
+	var courier: int = route.get("courier_dust",0)
 	if not commission_id.is_empty():
 		var offer: Array = Expedition.COMMISSIONS[commission_id]
 		ui.label(host,"委托 %s  ·  %s" % [offer[0],game.expedition_commission_progress(route)],Rect2(29,601,688,30),15,UI.GOLD)
+	var cargo: Array[String] = []
 	if sealed>0:
-		ui.label(host,"封存 %d 灯砂 · 破关领取" % sealed,Rect2(777,601,355,30),15,UI.OCHRE,true)
+		cargo.append("封存 %d · 破关领取" % sealed)
+	if courier>0:
+		cargo.append("已寄存 %d 灯砂" % courier)
+	if not cargo.is_empty():
+		ui.label(host,"    ·    ".join(cargo),Rect2(728,601,404,30),15,UI.OCHRE,true)
 	ui.button(host,"带上战利品撤回",Rect2(27,643,316,52),func(): open_scene("extraction"),UI.JADE,false,10,route.step>0 and not pending)
+	if game.at_courier_stop():
+		var reason: String = game.courier_block_reason(1)
+		var courier_button := ui.button(host,"归灯驿 · 寄存灯砂" if courier==0 else "归灯驿 · 已寄存",Rect2(393,643,366,52),func():
+			courier_amount=1
+			open_scene("courier"),UI.GOLD,false,10,reason.is_empty())
+		courier_button.tooltip_text="花费 %d 本趟灵石寄存灯砂，败退也可结算。" % Expedition.COURIER_FEE if reason.is_empty() else reason
 	if pending:
 		ui.button(host,"继续战斗",Rect2(790,643,344,52),func():
 			if game.resume_expedition_battle():
@@ -1425,6 +1439,34 @@ func expedition_route() -> void:
 				else:
 					open_scene("battle"),UI.OCHRE,true,10,game.expedition_can_take(option))
 
+func courier_window() -> void:
+	var route: Dictionary = game.data.expedition
+	if not game.at_courier_stop():
+		return
+	var host := window("归灯驿","每趟可寄一次。寄出的灯砂在本趟结束时到账，败退也能带回。","compass",Vector2(868,568))
+	ui.box(host,Rect2(26,123,816,61),UI.WELL,UI.BORDER,10)
+	ui.label(host,"随身战利品    %d 灵石 · %d 灯砂" % [route.coins,route.dust],Rect2(45,135,397,34),17,UI.PAPER)
+	ui.label(host,"驿费    %d 灵石" % Expedition.COURIER_FEE,Rect2(543,135,272,34),17,UI.GOLD,true)
+	ui.label(host,"选择寄存数量",Rect2(28,195,808,31),17,UI.GOLD,false,true)
+	for amount in range(1,Expedition.COURIER_LIMIT+1):
+		var reason: String = game.courier_block_reason(amount)
+		var button := ui.button(host,"%d 份灯砂" % amount,Rect2(26+(amount-1)*277,237,262,52),func():
+			courier_amount=amount
+			open_scene("courier",true),UI.JADE,courier_amount==amount,10,reason.is_empty())
+		button.tooltip_text=reason
+	var held: int = maxi(0,route.dust-courier_amount)
+	ui.framed(host,Rect2(26,315,396,85))
+	ui.framed(host,Rect2(447,315,396,85))
+	ui.label(host,"归灯驿保管 %d 份" % courier_amount,Rect2(38,325,372,60),20,UI.JADE,true,true)
+	ui.label(host,"随身保留 %d 份" % held,Rect2(459,325,372,60),20,UI.GOLD,true,true)
+	if "seal" in Expedition.run_step(route,route.step):
+		var consequence := "仍可支付封灯试炼的 %d 份灯砂。" % Expedition.SEAL_ENTRY if held>=Expedition.SEAL_ENTRY else "随身灯砂将不足 %d 份，无法开启封灯试炼。" % Expedition.SEAL_ENTRY
+		ui.label(host,consequence,Rect2(26,411,816,41),16,UI.JADE if held>=Expedition.SEAL_ENTRY else UI.OCHRE,true)
+	ui.button(host,"返回路线",Rect2(26,478,353,52),func():open_scene("expedition",true),UI.JADE)
+	ui.button(host,"确认寄存 %d 份" % courier_amount,Rect2(487,478,355,52),func():
+		if game.dispatch_courier(courier_amount):
+			open_scene("expedition",true),UI.OCHRE,true,10,game.courier_block_reason(courier_amount).is_empty())
+
 func extraction_window() -> void:
 	var host := window("撤回宗门","立刻结算已经获得的战利品。","compass",Vector2(630,302))
 	var run: Dictionary = game.data.expedition
@@ -1434,13 +1476,16 @@ func extraction_window() -> void:
 	var offer: Array = Expedition.COMMISSIONS[run.commission] if fulfilled else []
 	var bonus_coins: int = offer[2] if fulfilled else 0
 	var bonus_dust: int = offer[3] if fulfilled else 0
-	ui.label(host,"本次可带回 %d 灵石和 %d 灯砂。" % [run.coins+bonus_coins,run.dust+bonus_dust],Rect2(31,121,568,35),18,UI.PAPER,true)
+	var courier: int = run.get("courier_dust",0)
+	ui.label(host,"本次可带回 %d 灵石和 %d 灯砂。" % [run.coins+bonus_coins,run.dust+bonus_dust+courier],Rect2(31,121,568,35),18,UI.PAPER,true)
 	var details: Array[String] = []
 	if not String(run.get("commission","")).is_empty():
 		details.append("已包含委托赏金" if fulfilled else "本轮委托结束")
 	var sealed: int = run.get("sealed_dust",0)
 	if sealed>0:
 		details.append("放弃封存的 %d 灯砂" % sealed)
+	if courier>0:
+		details.append("含归灯驿寄存 %d" % courier)
 	if not details.is_empty():
 		ui.label(host,"    ·    ".join(details),Rect2(30,157,570,28),14,UI.GOLD,true)
 	ui.button(host,"继续深入",Rect2(28,191,278,53),func():open_scene("expedition"),UI.JADE)
@@ -1490,6 +1535,9 @@ func expedition_result_window() -> void:
 	var restored: int = result.get("imprint_healed",0)
 	if restored>0:
 		details.append("回息铭共恢复 %d 气血" % restored)
+	var courier: int = result.get("courier_dust",0)
+	if courier>0:
+		details.append("归灯驿送回 %d 灯砂" % courier)
 	if not details.is_empty():
 		ui.label(host,"    ·    ".join(details),Rect2(28,486,751,44),16,UI.JADE,true)
 
@@ -1753,9 +1801,60 @@ func smoke_test() -> void:
 	print("SEAL_TRIAL_SMOKE_", "PASS" if seal else "FAIL")
 	var imprints := smoke_imprints() and smoke_action_imprint()
 	print("IMPRINT_SMOKE_", "PASS" if imprints else "FAIL")
+	var courier := smoke_courier("撤回") and smoke_courier("破关") and smoke_courier("败退")
+	print("COURIER_SMOKE_", "PASS" if courier else "FAIL")
 	music.free()
 	sfx.free()
-	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies and seal and imprints else 1)
+	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies and seal and imprints and courier else 1)
+
+func smoke_courier(settlement: String) -> bool:
+	game=State.new()
+	game.transient=true
+	game.data.dust=20
+	var expects_clear := settlement=="破关"
+	if game.dispatch_courier(1) or not game.start_expedition(-1,-1,0,0) or not game.expedition_take("trail" if expects_clear else "pool") or game.at_courier_stop():
+		return false
+	if expects_clear and not training_test():
+		return false
+	if not game.expedition_take("rest") or not game.expedition_take("bridge") or not game.at_courier_stop():
+		return false
+	var run: Dictionary = game.data.expedition
+	run.erase("courier_dust")
+	var original_coins: int = run.coins
+	var original_dust: int = run.dust
+	run.coins=Expedition.COURIER_FEE-1
+	if game.dispatch_courier(1):
+		return false
+	run.coins=original_coins
+	if game.dispatch_courier(0) or game.dispatch_courier(original_dust+1) or not game.expedition_can_take("seal"):
+		return false
+	if not game.dispatch_courier(1) or game.dispatch_courier(1) or game.expedition_can_take("seal")!=expects_clear:
+		return false
+	if run.coins!=original_coins-Expedition.COURIER_FEE or run.dust!=original_dust-1 or run.courier_dust!=1 or game.data.dust!=20 or run.step!=3:
+		return false
+	var expected_dust := original_dust
+	if settlement=="撤回":
+		if not game.extract_expedition():
+			return false
+	else:
+		if expects_clear:
+			if not game.expedition_take("seal"):
+				return false
+			game.battle.enemy=1
+			game.strike("attack")
+			game.leave_battle()
+		elif not game.expedition_take("camp"):
+			return false
+		if not game.expedition_take("boss") or game.dispatch_courier(1):
+			return false
+		if expects_clear:
+			game.battle.enemy=1
+			expected_dust=1+Expedition.ENCOUNTERS.boss[3]+Expedition.seal_reward(0)
+		else:
+			game.battle.hp=1
+			expected_dust=1
+		game.strike("attack")
+	return game.data.expedition_last.result==settlement and game.data.expedition_last.dust==expected_dust and game.data.expedition_last.courier_dust==1 and game.data.dust==20+expected_dust and not game.extract_expedition()
 
 func smoke_imprints() -> bool:
 	game=State.new()

@@ -1,6 +1,9 @@
 extends RefCounted
 
 const DEPTH = 5
+const COURIER_STOP = 3
+const COURIER_FEE = 8
+const COURIER_LIMIT = 3
 const SEAL_ENTRY = 2
 const SEAL_BOOST = 9
 const SEQUENCES = [["trail","pool"],["relay","rest"],["elite","bridge"],["camp","shrine"],["boss"]]

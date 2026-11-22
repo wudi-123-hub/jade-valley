@@ -116,6 +116,9 @@ func _ready() -> void:
 	if not await play_imprints():
 		get_tree().quit(23)
 		return
+	if not await play_courier():
+		get_tree().quit(24)
+		return
 	game.data.rank=3
 	game.migrate(1)
 	await capture("summer")
@@ -636,6 +639,65 @@ func withdraw_imprint_run() -> void:
 	find_text_button(modal,"带上战利品撤回").pressed.emit()
 	find_text_button(modal,"确认撤回").pressed.emit()
 	close_scene()
+
+func play_courier() -> bool:
+	open_expedition()
+	find_text_button(modal,"启程入境").pressed.emit()
+	choose_node("trail")
+	if not await win_action_with_attacks():
+		return false
+	find_text_button(modal,"继续远征").pressed.emit()
+	choose_node("rest")
+	choose_node("bridge")
+	var run: Dictionary = game.data.expedition
+	if run.dust!=3 or not game.expedition_can_take("seal"):
+		return false
+	var wallet: int = game.data.dust
+	var coins: int = run.coins
+	find_text_button(modal,"归灯驿 · 寄存灯砂").pressed.emit()
+	if find_text_button(modal,"3 份灯砂").disabled:
+		return false
+	find_text_button(modal,"2 份灯砂").pressed.emit()
+	if is_instance_valid(toast_panel):
+		toast_panel.free()
+	await capture("courier-choice")
+	find_text_button(modal,"确认寄存 2 份").pressed.emit()
+	if run.coins!=coins-Expedition.COURIER_FEE or run.courier_dust!=2 or run.dust!=1 or game.data.dust!=wallet:
+		return false
+	if not find_text_button(modal,"归灯驿 · 已寄存").disabled:
+		return false
+	for child: Button in modal.find_children("*","Button",true,false):
+		if child.tooltip_text==Expedition.OPTIONS.seal[2]:
+			child.pressed.emit()
+			break
+	if not find_text_button(modal,"踏入封灯试炼").disabled:
+		return false
+	await capture("courier-route")
+	var receipt := State.new()
+	receipt.save_prefix=save_test_checkpoint("courier-checkpoint")
+	if not receipt.read_save() or receipt.data.expedition.courier_dust!=2 or receipt.data.expedition.dust!=1 or receipt.dispatch_courier(1):
+		return false
+	find_text_button(modal,"带上战利品撤回").pressed.emit()
+	await capture("courier-extraction")
+	find_text_button(modal,"继续深入").pressed.emit()
+	choose_node("camp")
+	choose_node("boss")
+	if not duel.damage_player(999):
+		return false
+	await get_tree().create_timer(.55).timeout
+	find_text_button(modal,"查看远征结算").pressed.emit()
+	var result: Dictionary = game.data.expedition_last
+	if result.result!="败退" or result.dust!=2 or result.courier_dust!=2 or result.coins!=int((coins-Expedition.COURIER_FEE)/2.0) or game.data.dust!=wallet+2:
+		return false
+	await capture("courier-result")
+	close_scene()
+	open_expedition()
+	find_text_button(modal,"上次远征战报").pressed.emit()
+	close_scene()
+	if game.data.dust!=wallet+2:
+		return false
+	print("COURIER_WINDOWED_PASS")
+	return true
 
 func save_test_checkpoint(name: String) -> String:
 	var saved := State.new()
