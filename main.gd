@@ -177,7 +177,17 @@ func show_title() -> void:
 	mask.height = 2
 	mask.gradient = grad
 	ui.picture(root,mask,Rect2(Vector2.ZERO,VIEW)).stretch_mode = TextureRect.STRETCH_SCALE
-	ui.picture(root,hero_portrait(),Rect2(1047,324,341,338))
+	var shadow_ramp := Gradient.new()
+	shadow_ramp.colors=PackedColorArray([Color(.10,.09,.04,.48),Color(.10,.09,.04,0)])
+	var shadow := GradientTexture2D.new()
+	shadow.width=192
+	shadow.height=36
+	shadow.fill=GradientTexture2D.FILL_RADIAL
+	shadow.fill_from=Vector2(.5,.5)
+	shadow.fill_to=Vector2(1,.5)
+	shadow.gradient=shadow_ramp
+	ui.picture(root,shadow,Rect2(1119,657,188,24)).stretch_mode=TextureRect.STRETCH_SCALE
+	ui.picture(root,hero_portrait(),Rect2(1047,337,341,338))
 	ui.box(root,Rect2(79,105,51,51),Color("#244d40"),UI.GOLD,14)
 	ui.mark(root,"mountain",Rect2(90,116,29,29))
 	ui.label(root,"四季宗门",Rect2(145,110,230,39),19,UI.GOLD,false,true)
