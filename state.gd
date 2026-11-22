@@ -41,6 +41,7 @@ const DEFAULT = {
 	"expedition":{},"expedition_last":{},"expedition_serial":0,"expedition_wins":[0,0,0,0],
 	"expedition_commissions":0,
 	"expedition_relic_preset":-1,
+	"expedition_imprint_preset":-1,"imprints":[false,false],
 	"remedies":[0,0,0],
 	"duty_orders":{},"scout_days":0,"scout_token":0,
 	"sound":true,"music":true,"motion":true
@@ -411,6 +412,7 @@ func strike(tactic: String) -> void:
 	battle.taken = 0
 	battle.enemy = maxi(0,battle.enemy-battle.hit)
 	battle.focus = clampi(battle.focus+focus_gain,0,3)
+	var imprint_triggered: bool = spell and battle.interrupt and Expedition.refund_counter_imprint(battle)
 	if battle.enemy == 0:
 		battle.result = 1
 		if is_expedition:
@@ -461,6 +463,8 @@ func strike(tactic: String) -> void:
 		battle.note = "%s · 造成 %d · 恢复 %d · 承伤 %d。" % [Expedition.PET_MOVES[spirit][0],battle.hit,battle.healed,battle.taken]
 	elif battle.interrupt:
 		battle.note = "破阵诀打断%s，造成 %d 伤害。" % [move[0],battle.hit]
+		if imprint_triggered:
+			battle.note+=" 破势铭返还 1 点剑意。"
 	elif guard:
 		battle.note = "架剑承伤 %d，获得 2 点剑意，下一次御剑斩蓄力。" % battle.taken
 	elif heal:
@@ -542,6 +546,27 @@ func expedition_forecast(use_scout := false) -> Dictionary:
 func relic_unlocked(relic: int) -> bool:
 	return relic>=0 and relic<Expedition.RELICS.size() and data.expedition_wins[relic]>0
 
+func has_relic() -> bool:
+	for index in Expedition.RELICS.size():
+		if relic_unlocked(index):
+			return true
+	return false
+
+func imprint_learned(id: int) -> bool:
+	return id>=0 and id<Expedition.IMPRINTS.size() and data.imprints[id]
+
+func can_learn_imprint(id: int) -> bool:
+	return id>=0 and id<Expedition.IMPRINTS.size() and not imprint_learned(id) and has_relic() and data.stones>=Expedition.IMPRINT_STONES and data.dust>=Expedition.IMPRINT_DUST
+
+func learn_imprint(id: int) -> bool:
+	if not can_learn_imprint(id):
+		return false
+	data.stones-=Expedition.IMPRINT_STONES
+	data.dust-=Expedition.IMPRINT_DUST
+	data.imprints[id]=true
+	record("遗宝","在铭印台领悟%s。" % Expedition.IMPRINTS[id].name,false)
+	return true
+
 func can_brew_remedy(id: int) -> bool:
 	if id<0 or id>=Expedition.REMEDIES.size():
 		return false
@@ -573,7 +598,7 @@ func use_turn_remedy() -> bool:
 	store_expedition_battle()
 	return true
 
-func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := "",relic := -1,use_scout := false,action := false,remedy := -1) -> bool:
+func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := "",relic := -1,use_scout := false,action := false,remedy := -1,imprint := -1) -> bool:
 	if not data.expedition.is_empty() or not battle.is_empty() or not guide_available(guide) or pet< -1 or pet>=data.pets.size():
 		return false
 	if packed<0 or packed>3 or packed>data.herbs or tier<0 or tier>1 or (tier==1 and data.expedition_wins[data.map]<1):
@@ -584,6 +609,8 @@ func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := ""
 	if not commission.is_empty() and commission not in forecast.offers:
 		return false
 	if relic!=-1 and not relic_unlocked(relic):
+		return false
+	if imprint!=-1 and (relic<0 or not imprint_learned(imprint)):
 		return false
 	if remedy!=-1 and (remedy<0 or remedy>=Expedition.REMEDIES.size() or data.remedies[remedy]<=0):
 		return false
@@ -597,6 +624,7 @@ func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := ""
 		data.remedies[remedy]-=1
 	data.expedition_serial+=1
 	data.expedition_relic_preset=relic
+	data.expedition_imprint_preset=imprint
 	data.expedition = {
 		"area":data.map,"rank":data.rank,"serial":data.expedition_serial,"step":0,"tier":tier,"history":[],
 		"hp":cap,"maxhp":cap,"herbs":packed+int(group==2),"coins":0,"dust":0,"combat":{},
@@ -606,6 +634,7 @@ func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := ""
 		"action":action and data.map==0,
 		"boss_tactics":true,"spirit_index":pet,"spirit_charges":int(pet>=0),
 		"relic":relic,
+		"imprint":imprint,"imprint_healed":0,
 		"remedy":remedy,"remedy_used":false,
 		"boost":0,"focus":data.facilities.observatory+int(pet==2),"guard":4 if pet==3 else 0,
 		"slash":attack+(5 if group==0 else 0),"spell":attack+(8 if pet==1 else 0)
@@ -713,6 +742,7 @@ func start_expedition_battle(option: String) -> void:
 		"action_duel":run.get("action",false),
 		"remedy":run.get("remedy",-1),"remedy_used":run.get("remedy_used",false),
 		"relic":relic,"relic_spent":false,"relic_note":"玄霜灯芯 · 开场恢复 %d 气血" % restored if restored>0 else "",
+		"imprint":run.get("imprint",-1),"imprint_spent":false,
 		"slash":run.slash+run.boost,"spell":run.spell+run.boost,"guard":run.guard
 	}
 	store_expedition_battle()
@@ -757,6 +787,14 @@ func resolve_expedition_fight(won: bool) -> void:
 		run.boost+=Expedition.SEAL_BOOST
 		run.sealed_dust=Expedition.seal_reward(run.tier)
 		battle.note="封灯试炼告捷 · 伤害 +%d · 封存 %d 灯砂 · 缴获 %d 灵石。" % [Expedition.SEAL_BOOST,run.sealed_dust,coins]
+	if node!="boss" and run.get("imprint",-1)==Expedition.Imprint.RECOVERY:
+		var healed: int = mini(Expedition.IMPRINT_RECOVERY,battle.maxhp-battle.hp)
+		if healed>0:
+			battle.hp+=healed
+			battle.healed=healed
+			run.hp=battle.hp
+			run.imprint_healed=run.get("imprint_healed",0)+healed
+			battle.note+=" 回息铭恢复 %d 气血。" % healed
 	if node=="boss":
 		finish_expedition("破关")
 	else:
@@ -823,6 +861,7 @@ func finish_expedition(result: String) -> void:
 	data.expedition_last.relic_unlocked=new_relic
 	data.expedition_last.remedy_returned=returned
 	data.expedition_last.merge({"sealed_dust":sealed,"sealed_paid":sealed_paid})
+	data.expedition_last.imprint_healed=run.get("imprint_healed",0)
 	data.expedition={}
 	var note := "远征%s，入账 %d 灵石、%d 灯砂。" % [result,coins,grains]
 	if new_relic>=0:

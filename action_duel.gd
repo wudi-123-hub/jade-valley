@@ -74,6 +74,7 @@ var foe_label: Label
 var help_label: Label
 var notice_label: Label
 var remedy_button: Button
+var imprint_label: Label
 var player_name: String
 var technique: String
 var technique_color: Color
@@ -161,6 +162,10 @@ func _ready() -> void:
 	notice_label=ui.label(self,"",Rect2(473,223,494,47),21,GOLD,true,true)
 	notice_label.add_theme_color_override("font_outline_color",Color("152b31"))
 	notice_label.add_theme_constant_override("outline_size",5)
+	if stats.get("imprint",-1)>=0:
+		imprint_label=ui.label(self,"",Rect2(96,211,383,27),15,GOLD)
+		imprint_label.add_theme_color_override("font_outline_color",Color("152b31"))
+		imprint_label.add_theme_constant_override("outline_size",4)
 	if stats.get("remedy",-1)>=0:
 		remedy_button=ui.button(self,"",Rect2(1103,183,242,40),use_remedy,UI.GOLD)
 		remedy_button.focus_mode=Control.FOCUS_NONE
@@ -183,6 +188,9 @@ func refresh_hud() -> void:
 		remedy_button.text="[F] "+recipe.name+suffix
 		remedy_button.disabled=not status.is_empty()
 		remedy_button.tooltip_text=recipe.hint if status.is_empty() else status
+	if is_instance_valid(imprint_label):
+		var status := " · 已返还剑意" if stats.get("imprint_spent",false) else ""
+		imprint_label.text=Expedition.IMPRINTS[stats.imprint].name+status
 
 func _notification(what: int) -> void:
 	if what==NOTIFICATION_WM_WINDOW_FOCUS_OUT:
@@ -343,7 +351,8 @@ func burst() -> void:
 			if stats.relic==Expedition.Relic.FLAME and not stats.relic_spent:
 				stats.relic_spent=true
 				damage+=12
-			callout("剑气打断 · 贴近反击")
+			var refunded := Expedition.refund_counter_imprint(stats)
+			callout("破势铭 · 返还 1 点剑意" if refunded else "剑气打断 · 贴近反击")
 		damage_enemy(damage)
 	else:
 		changed.emit()
@@ -499,8 +508,8 @@ func damage_enemy(amount: int) -> void:
 		enemy.x=clampf(enemy.x+face*15,LEFT+37,RIGHT-37)
 	impact(enemy+Vector2(0,-49),GOLD)
 	freeze=.054 if motion else .020
-	refresh_hud()
 	changed.emit()
+	refresh_hud()
 	sounded.emit("sword")
 
 func snapshot() -> void:

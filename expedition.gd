@@ -56,6 +56,14 @@ const RELICS = [
 	["镜台羽铃","每次使用行囊灵草疗伤，同时获得 2 点剑意。","spark"],
 	["玄霜灯芯","带着半血或更低的气血进战时，开场恢复 18 气血。","flame"]
 ]
+enum Imprint { COUNTER, RECOVERY }
+const IMPRINT_STONES = 35
+const IMPRINT_DUST = 5
+const IMPRINT_RECOVERY = 12
+const IMPRINTS = [
+	{"name":"破势铭","art":"training","icon":"sword","timing":"打断后续招","hint":"每场首次用神技打断敌招时，返还 1 点剑意。"},
+	{"name":"回息铭","art":"garden","icon":"sprout","timing":"连战时续航","hint":"每次赢下途中斗法，恢复至多 %d 气血。守关战胜利时不触发。" % IMPRINT_RECOVERY}
+]
 const MOVES = [
 	[["碧岩扑",12,"light"],["灯甲砸阵",33,"heavy"],["镇潮合甲",17,"ward"]],
 	[["焰尾横扫",16,"light"],["双尾吞焰",38,"heavy"],["回卷火鳞",17,"ward"]],
@@ -105,6 +113,13 @@ static func plan(area: int,serial: int) -> Dictionary:
 
 static func seal_reward(tier: int) -> int:
 	return 6+tier*2
+
+static func refund_counter_imprint(battle: Dictionary) -> bool:
+	if battle.get("imprint",-1)!=Imprint.COUNTER or battle.get("imprint_spent",false):
+		return false
+	battle.imprint_spent=true
+	battle.focus=mini(3,battle.focus+1)
+	return true
 
 static func run_step(run: Dictionary,depth: int) -> Array:
 	if run.has("itinerary"):

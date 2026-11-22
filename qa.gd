@@ -113,6 +113,9 @@ func _ready() -> void:
 	if not await play_seal_trial():
 		get_tree().quit(22)
 		return
+	if not await play_imprints():
+		get_tree().quit(23)
+		return
 	game.data.rank=3
 	game.migrate(1)
 	await capture("summer")
@@ -141,7 +144,7 @@ func _ready() -> void:
 	old_save.close()
 	var migrated = State.new()
 	migrated.save_prefix = isolated+"-legacy"
-	if not migrated.read_save() or migrated.data.rank!=2 or migrated.data.story_chapter!=0 or migrated.data.stones!=421 or not migrated.relic_unlocked(0) or migrated.data.expedition_relic_preset!=-1 or not migrated.data.duty_orders.is_empty() or migrated.data.scout_token!=0 or migrated.data.hero_style!=-1 or not migrated.hero_unlocked(2) or migrated.data.remedies!=[0,0,0]:
+	if not migrated.read_save() or migrated.data.rank!=2 or migrated.data.story_chapter!=0 or migrated.data.stones!=421 or not migrated.relic_unlocked(0) or migrated.data.expedition_relic_preset!=-1 or not migrated.data.duty_orders.is_empty() or migrated.data.scout_token!=0 or migrated.data.hero_style!=-1 or not migrated.hero_unlocked(2) or migrated.data.remedies!=[0,0,0] or migrated.data.imprints!=[false,false] or migrated.data.expedition_imprint_preset!=-1:
 		get_tree().quit(13)
 		return
 	print("WINDOWED_RENDER_PASS")
@@ -502,15 +505,8 @@ func play_seal_trial() -> bool:
 	find_text_button(modal,"踏入封灯试炼").pressed.emit()
 	if game.battle.expedition_node!="seal" or game.data.expedition.dust!=0 or duel.enemy_art.resource_path!="res://assets/duel_seal_mastiff.webp":
 		return false
-	var checkpoint := State.new()
-	checkpoint.save_prefix=OS.get_environment("JADE_QA_OUT")+"/seal-checkpoint"
-	checkpoint.read_save()
-	var sequence: int = checkpoint.data.seq
-	checkpoint.data=game.data.duplicate(true)
-	checkpoint.data.seq=sequence
-	checkpoint.save_game()
 	var resumed := State.new()
-	resumed.save_prefix=checkpoint.save_prefix
+	resumed.save_prefix=save_test_checkpoint("seal-checkpoint")
 	if not resumed.read_save() or not resumed.resume_expedition_battle() or resumed.battle.expedition_node!="seal" or resumed.data.expedition.dust!=0 or resumed.expedition_take("seal"):
 		return false
 	duel.player.x=duel.enemy.x-222
@@ -531,7 +527,7 @@ func play_seal_trial() -> bool:
 	if game.battle.hp!=health or duel.move_hit or duel.wave<=222:
 		printerr("Seal trial jump failed to avoid a passing shockwave. HP ",game.battle.hp," wave ",duel.wave," y ",duel.player.y)
 		return false
-	if not await win_seal_action():
+	if not await win_action_with_attacks():
 		return false
 	if game.data.expedition.sealed_dust!=Expedition.seal_reward(0) or game.data.expedition.dust!=0:
 		return false
@@ -542,7 +538,7 @@ func play_seal_trial() -> bool:
 	choose_node("boss")
 	if game.battle.slash!=Expedition.SEAL_BOOST+game.data.facilities.sword_hall*4:
 		return false
-	if not await win_seal_action():
+	if not await win_action_with_attacks():
 		return false
 	find_text_button(modal,"查看远征结算").pressed.emit()
 	if game.data.expedition_last.sealed_paid!=Expedition.seal_reward(0) or game.data.expedition_last.dust!=10:
@@ -552,7 +548,7 @@ func play_seal_trial() -> bool:
 	print("SEAL_TRIAL_WINDOWED_PASS")
 	return true
 
-func win_seal_action() -> bool:
+func win_action_with_attacks() -> bool:
 	duel.player=Vector2(duel.enemy.x-105,duel.FLOOR)
 	duel.set_phase("open",8.0)
 	for i in 6:
@@ -564,6 +560,92 @@ func win_seal_action() -> bool:
 			break
 	await get_tree().create_timer(.55).timeout
 	return game.battle.result==1
+
+func play_imprints() -> bool:
+	open_expedition()
+	find_text_button(modal,"上次远征战报").pressed.emit()
+	find_text_button(modal,"铭印台").pressed.emit()
+	var dust: int = game.data.dust
+	var stones: int = game.data.stones
+	find_text_button(modal,"领悟破势铭").pressed.emit()
+	find_text_button(modal,"领悟回息铭").pressed.emit()
+	if game.data.dust!=dust-2*Expedition.IMPRINT_DUST or game.data.stones!=stones-2*Expedition.IMPRINT_STONES:
+		return false
+	open_expedition()
+	find_text_button(modal,"镇门遗宝 · 潮甲印").pressed.emit()
+	find_text_button(modal,"铭印台").pressed.emit()
+	find_text_button(modal,"装配破势铭").pressed.emit()
+	if is_instance_valid(toast_panel):
+		toast_panel.free()
+	await capture("imprint-workshop")
+	find_text_button(modal,"返回镇门遗宝").pressed.emit()
+	find_text_button(modal,"返回远征整备").pressed.emit()
+	find_text_button(modal,"启程入境").pressed.emit()
+	choose_node("trail")
+	if game.battle.imprint!=Expedition.Imprint.COUNTER:
+		return false
+	duel.player.x=duel.enemy.x-255
+	duel.stats.focus=3
+	duel.move="rush"
+	duel.set_phase("tell",.75)
+	await physics_frames(2)
+	send_key(KEY_L,true)
+	Input.flush_buffered_events()
+	await physics_frames(3)
+	send_key(KEY_L,false)
+	if game.battle.focus!=1 or not game.battle.imprint_spent or duel.phase!="open":
+		printerr("Counter imprint interrupt: focus ",game.battle.focus," spent ",game.battle.imprint_spent," phase ",duel.phase," enemy ",game.battle.enemy," active ",duel.active," focused ",duel.focused)
+		return false
+	await capture("imprint-counter",.06)
+	var restored := State.new()
+	restored.save_prefix=save_test_checkpoint("imprint-checkpoint")
+	if not restored.read_save() or not restored.imprint_learned(Expedition.Imprint.RECOVERY) or restored.data.expedition_imprint_preset!=Expedition.Imprint.COUNTER or not restored.resume_expedition_battle() or not restored.battle.imprint_spent or restored.battle.focus!=1:
+		return false
+	close_scene()
+	open_expedition()
+	find_text_button(modal,"继续战斗").pressed.emit()
+	if game.battle.focus!=1 or not game.battle.imprint_spent or not await win_action_with_attacks():
+		return false
+	withdraw_imprint_run()
+	open_expedition()
+	find_text_button(modal,"镇门遗宝 · 潮甲印 / 破势铭").pressed.emit()
+	find_text_button(modal,"铭印台").pressed.emit()
+	find_text_button(modal,"装配回息铭").pressed.emit()
+	find_text_button(modal,"返回镇门遗宝").pressed.emit()
+	find_text_button(modal,"返回远征整备").pressed.emit()
+	find_text_button(modal,"启程入境").pressed.emit()
+	choose_node("pool")
+	choose_node("ambush")
+	if game.battle.imprint!=Expedition.Imprint.RECOVERY or not duel.damage_player(16):
+		return false
+	var worn_hp: int = game.battle.hp
+	if not await win_action_with_attacks():
+		return false
+	if game.battle.hp!=worn_hp+Expedition.IMPRINT_RECOVERY or game.data.expedition.imprint_healed!=Expedition.IMPRINT_RECOVERY:
+		printerr("Recovery imprint did not heal after the ambush.")
+		return false
+	await capture("imprint-recovery")
+	withdraw_imprint_run()
+	if game.data.expedition_last.imprint_healed!=Expedition.IMPRINT_RECOVERY:
+		return false
+	print("IMPRINT_WINDOWED_PASS")
+	return true
+
+func withdraw_imprint_run() -> void:
+	find_text_button(modal,"继续远征").pressed.emit()
+	find_text_button(modal,"带上战利品撤回").pressed.emit()
+	find_text_button(modal,"确认撤回").pressed.emit()
+	close_scene()
+
+func save_test_checkpoint(name: String) -> String:
+	var saved := State.new()
+	saved.save_prefix=OS.get_environment("JADE_QA_OUT")+"/"+name
+	saved.read_save()
+	var sequence: int = saved.data.seq
+	saved.data=game.data.duplicate(true)
+	saved.data.seq=sequence
+	saved.save_game()
+	return saved.save_prefix
 
 func find_text_button(container: Node,target: String) -> Button:
 	for child: Button in container.find_children("*","Button",true,false):

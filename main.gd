@@ -76,11 +76,13 @@ var draft_herbs := 0
 var draft_tier := 0
 var draft_commission := ""
 var draft_relic := -1
+var draft_imprint := -1
 var draft_scout := false
 var draft_remedy := -1
 var remedy_return := "garden"
 var duty_selection := -1
 var relic_return := "expedition"
+var imprint_return := "relics"
 var route_choice := ""
 var modal_focus_nodes: Array[Button] = []
 var previous_focus: Control
@@ -597,6 +599,7 @@ func open_scene(kind: String,instant := false) -> void:
 		"expedition": expedition_window()
 		"expedition_plan": expedition_plan_window()
 		"relics": relic_window()
+		"imprints": imprints_window()
 		"extraction": extraction_window()
 		"expedition_result": expedition_result_window()
 		"facilities": facilities_window()
@@ -1043,6 +1046,11 @@ func battle_window() -> void:
 		var detail: String = relic_note if not relic_note.is_empty() else "携带 %s" % Expedition.RELICS[relic][0]
 		ui.box(arena,Rect2(373,328,330,35),Color(.06,.16,.13,.92),UI.GOLD,9)
 		ui.label(arena,detail,Rect2(381,329,314,33),14,UI.GOLD,true)
+	var imprint: int = b.get("imprint",-1)
+	if imprint>=0:
+		var used := " · 已返还剑意" if b.get("imprint_spent",false) else ""
+		ui.box(arena,Rect2(24,307,272,34),Color(.06,.16,.13,.92),UI.GOLD,9)
+		ui.label(arena,Expedition.IMPRINTS[imprint].name+used,Rect2(30,308,260,32),14,UI.GOLD,true)
 	if b.hit>0:
 		damage_float(arena,"−%d" % b.hit,Vector2(809,164),UI.OCHRE)
 		if game.data.motion:
@@ -1126,6 +1134,9 @@ func open_expedition() -> void:
 		draft_relic = int(game.data.expedition_relic_preset)
 		if not game.relic_unlocked(draft_relic):
 			draft_relic=-1
+		draft_imprint=int(game.data.expedition_imprint_preset)
+		if draft_relic<0 or not game.imprint_learned(draft_imprint):
+			draft_imprint=-1
 	else:
 		route_choice = ""
 	open_scene("expedition")
@@ -1161,6 +1172,8 @@ func expedition_window() -> void:
 		draft_tier=1-draft_tier
 		open_scene("expedition",true),risky)
 	var relic_name: String = Expedition.RELICS[draft_relic][0] if draft_relic>=0 else "未携带"
+	if draft_imprint>=0:
+		relic_name+=" / "+Expedition.IMPRINTS[draft_imprint].name
 	ui.button(host,"镇门遗宝 · %s" % relic_name,Rect2(530,333,546,47),func():
 		relic_return="expedition"
 		open_scene("relics"),UI.GOLD)
@@ -1174,7 +1187,7 @@ func expedition_window() -> void:
 	ui.button(host,"启程入境",Rect2(731,501,345,54),launch_prepared_expedition,UI.OCHRE,true)
 
 func launch_prepared_expedition() -> void:
-	if game.start_expedition(-1,-1,draft_herbs,draft_tier,draft_commission,draft_relic,draft_scout,action_expeditions,draft_remedy):
+	if game.start_expedition(-1,-1,draft_herbs,draft_tier,draft_commission,draft_relic,draft_scout,action_expeditions,draft_remedy,draft_imprint):
 		route_choice=""
 		open_scene("expedition",true)
 
@@ -1208,11 +1221,55 @@ func relic_window() -> void:
 	if choosing:
 		ui.button(host,"本趟不携带",Rect2(26,559,367,49),func():
 			draft_relic=-1
+			draft_imprint=-1
 			open_scene("expedition",true),UI.JADE)
 		ui.button(host,"返回远征整备",Rect2(712,559,368,49),func():open_scene("expedition",true),UI.JADE)
 	else:
 		ui.button(host,"前往远征整备",Rect2(26,559,367,49),open_expedition,UI.OCHRE,true)
 		ui.button(host,"返回远征战报",Rect2(712,559,368,49),func():open_scene("expedition_result",true),UI.JADE)
+	var imprint_button := ui.button(host,"铭印台",Rect2(406,559,294,49),func():open_imprints("relics"),UI.GOLD,false,10,game.has_relic())
+	imprint_button.tooltip_text="用战利品领悟铭印。" if game.has_relic() else "首次取得遗宝后开放。"
+
+func open_imprints(from: String) -> void:
+	imprint_return=from
+	open_scene("imprints")
+
+func imprints_window() -> void:
+	var choosing := imprint_return=="relics" and relic_return=="expedition"
+	var host := window("遗宝铭印","持有 %d 灵石 · %d 灯砂    每趟远征可在一件遗宝上装配一种铭印。" % [game.data.stones,game.data.dust],"spark",Vector2(979,604))
+	for i in Expedition.IMPRINTS.size():
+		var mark: Dictionary = Expedition.IMPRINTS[i]
+		var accent := UI.OCHRE if i==Expedition.Imprint.COUNTER else UI.JADE
+		var learned: bool = game.imprint_learned(i)
+		var selected := choosing and draft_imprint==i
+		var x := 27+i*471
+		ui.framed(host,Rect2(x,124,454,365))
+		ui.box(host,Rect2(x+20,143,414,104),UI.WELL,accent,10)
+		ui.emblem(host,mark.art,mark.icon,Rect2(x+34,152,88,85),accent)
+		ui.label(host,mark.name,Rect2(x+145,151,278,41),24,UI.PAPER,false,true)
+		ui.label(host,mark.timing,Rect2(x+145,193,278,33),15,accent)
+		ui.label(host,mark.hint,Rect2(x+31,267,391,62),16,UI.PAPER,false,false,true)
+		if learned:
+			ui.label(host,"已领悟",Rect2(x+31,335,391,42),16,accent,true)
+		else:
+			ui.button(host,"领悟"+mark.name,Rect2(x+26,336,402,48),func():
+				if game.learn_imprint(i):
+					open_scene("imprints",true),accent,true,10,game.can_learn_imprint(i))
+			ui.label(host,"%d 灵石 · %d 灯砂" % [Expedition.IMPRINT_STONES,Expedition.IMPRINT_DUST],Rect2(x+26,387,402,34),15,UI.MUTE,true)
+		if choosing and learned:
+			ui.button(host,"已装配" if selected else "装配"+mark.name,Rect2(x+26,416,402,47),func():
+				draft_imprint=i
+				open_scene("imprints",true),accent,not selected,10,draft_relic>=0 and not selected)
+	if choosing and draft_relic<0:
+		ui.label(host,"先在镇门遗宝选择一件遗宝。",Rect2(30,515,477,48),15,UI.MUTE)
+	elif choosing and draft_imprint>=0:
+		ui.button(host,"卸下当前铭印",Rect2(27,515,327,48),func():
+			draft_imprint=-1
+			open_scene("imprints",true),UI.JADE)
+	elif not choosing:
+		ui.button(host,"前往远征整备",Rect2(27,515,327,48),open_expedition,UI.OCHRE)
+	var returning := "返回镇门遗宝" if imprint_return=="relics" else "返回远征战报"
+	ui.button(host,returning,Rect2(617,515,337,48),func():open_scene(imprint_return,true),UI.JADE)
 
 func expedition_plan_window() -> void:
 	var forecast: Dictionary = game.expedition_forecast(draft_scout)
@@ -1281,7 +1338,11 @@ func route_points(board: Node,point_a: Vector2,point_b: Vector2,tint: Color,emph
 
 func expedition_route() -> void:
 	var route: Dictionary = game.data.expedition
-	var host := window(route.get("route_name","遗灯秘境"),"%s · %s · %s" % [State.MAPS[route.area][1],"险途" if route.tier else "初探",game.hero_name()],"compass",Vector2(1160,755))
+	var subtitle := "%s · %s · %s" % [State.MAPS[route.area][1],"险途" if route.tier else "初探",game.hero_name()]
+	var imprint: int = route.get("imprint",-1)
+	if imprint>=0:
+		subtitle+=" · "+Expedition.IMPRINTS[imprint].name
+	var host := window(route.get("route_name","遗灯秘境"),subtitle,"compass",Vector2(1160,755))
 	var options: Array = game.expedition_choices()
 	if route_choice not in options:
 		route_choice=""
@@ -1412,6 +1473,10 @@ func expedition_result_window() -> void:
 			relic_return="expedition_result"
 			open_scene("relics"),UI.OCHRE,true)
 		ui.button(host,"返回山门",Rect2(540,432,239,49),close_scene,UI.JADE)
+	elif game.has_relic():
+		ui.button(host,"宗门营造",Rect2(28,432,238,49),func():open_scene("facilities"),UI.OCHRE,true)
+		ui.button(host,"铭印台",Rect2(284,432,238,49),func():open_imprints("expedition_result"),UI.GOLD)
+		ui.button(host,"返回山门",Rect2(540,432,239,49),close_scene,UI.JADE)
 	else:
 		ui.button(host,"宗门营造",Rect2(28,402,365,54),func():open_scene("facilities"),UI.OCHRE,true)
 		ui.button(host,"返回山门",Rect2(407,402,372,54),close_scene,UI.JADE)
@@ -1422,6 +1487,9 @@ func expedition_result_window() -> void:
 	var sealed: int = result.get("sealed_dust",0)
 	if sealed>0:
 		details.append("封灯奖励 +%d 灯砂" % result.sealed_paid if result.sealed_paid>0 else "已放弃封存的 %d 灯砂" % sealed)
+	var restored: int = result.get("imprint_healed",0)
+	if restored>0:
+		details.append("回息铭共恢复 %d 气血" % restored)
 	if not details.is_empty():
 		ui.label(host,"    ·    ".join(details),Rect2(28,486,751,44),16,UI.JADE,true)
 
@@ -1683,9 +1751,75 @@ func smoke_test() -> void:
 	print("REMEDY_SMOKE_", "PASS" if remedies else "FAIL")
 	var seal := smoke_seal_trial(0,"破关") and smoke_seal_trial(1,"撤回") and smoke_seal_trial(0,"败退")
 	print("SEAL_TRIAL_SMOKE_", "PASS" if seal else "FAIL")
+	var imprints := smoke_imprints() and smoke_action_imprint()
+	print("IMPRINT_SMOKE_", "PASS" if imprints else "FAIL")
 	music.free()
 	sfx.free()
-	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies and seal else 1)
+	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies and seal and imprints else 1)
+
+func smoke_imprints() -> bool:
+	game=State.new()
+	game.transient=true
+	game.data.dust=2*Expedition.IMPRINT_DUST
+	var counter := Expedition.Imprint.COUNTER
+	var recovery := Expedition.Imprint.RECOVERY
+	if game.learn_imprint(counter):
+		return false
+	game.data.expedition_wins[0]=1
+	if game.start_expedition(-1,-1,0,0,"",0,false,false,-1,counter):
+		return false
+	if not game.learn_imprint(counter) or game.learn_imprint(counter) or not game.learn_imprint(recovery):
+		return false
+	if game.data.dust!=0 or game.data.stones!=110-2*Expedition.IMPRINT_STONES or game.start_expedition(-1,-1,0,0,"",-1,false,false,-1,counter):
+		return false
+	if not game.start_expedition(-1,-1,0,0,"",0,false,false,-1,counter) or not game.expedition_take("trail"):
+		return false
+	game.battle.enemy=150
+	game.battle.focus=3
+	game.strike("spell")
+	if game.battle.focus!=0 or game.battle.imprint_spent:
+		return false
+	game.battle.focus=3
+	game.strike("spell")
+	if game.battle.focus!=1 or not game.battle.imprint_spent:
+		return false
+	game.leave_battle()
+	if not game.resume_expedition_battle() or not game.battle.imprint_spent:
+		return false
+	game.battle.focus=3
+	game.strike("spell")
+	if game.battle.focus!=0:
+		return false
+	game.battle.enemy=1
+	game.strike("attack")
+	game.leave_battle()
+	if not game.extract_expedition() or not game.start_expedition(-1,-1,0,0,"",0,false,false,-1,recovery):
+		return false
+	if not game.expedition_take("reeds") or not game.expedition_take("tower") or not game.expedition_take("elite"):
+		return false
+	game.battle.enemy=1
+	game.strike("attack")
+	if game.battle.hp!=game.battle.maxhp or game.data.expedition.imprint_healed!=9:
+		return false
+	game.leave_battle()
+	if not game.expedition_take("camp") or not game.expedition_take("boss"):
+		return false
+	game.battle.hp=10
+	game.battle.enemy=1
+	game.strike("attack")
+	return game.battle.hp==10 and game.data.expedition_last.imprint_healed==9 and game.data.expedition_imprint_preset==recovery
+
+func smoke_action_imprint() -> bool:
+	var arena := ActionDuel.new()
+	var stats := {"expedition_node":"trail","tier":0,"result":0,"hp":83,"maxhp":83,"enemy":100,"maxenemy":100,"focus":3,"relic":-1,"imprint":Expedition.Imprint.COUNTER}
+	arena.setup(stats,0,-1,0,false,false)
+	arena.player.x=arena.enemy.x-255
+	arena.move="rush"
+	arena.set_phase("tell",.75)
+	arena.burst()
+	var refunded: bool = stats.focus==1 and stats.get("imprint_spent",false) and arena.phase=="open"
+	arena.free()
+	return refunded
 
 func smoke_seal_trial(tier: int,settlement: String) -> bool:
 	game=State.new()
