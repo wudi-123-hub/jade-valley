@@ -78,14 +78,16 @@ var imprint_label: Label
 var player_name: String
 var technique: String
 var technique_color: Color
+var technique_profile: Dictionary
 var burst_time := 0.0
 
 func setup(values: Dictionary, herbs_count: int, spirit_id: int, spirit_charges: int, animate: bool, tutorial: bool, style := 0, display_name := "掌门") -> void:
 	stats=values
 	player_name=display_name
 	var identity := maxi(style,0)
-	technique=State.HERO_TECHNIQUES[identity]
-	technique_color=[Color("91e9ff"),Color("a6e4ab"),Color("ffca7b")][identity]
+	technique_profile=State.HERO_MOVES[identity]
+	technique=technique_profile.name
+	technique_color=Color(technique_profile.color)
 	boss=stats.expedition_node=="boss"
 	seal_trial=stats.expedition_node=="seal"
 	ledges=CLOUD_LEDGES if boss else LEDGES
@@ -117,7 +119,7 @@ func setup(values: Dictionary, herbs_count: int, spirit_id: int, spirit_charges:
 	wave=snapshot.get("wave",wave)
 	move_index=snapshot.get("move_index",0)
 	stats.relic_spent=stats.get("relic_spent",false)
-	hero_art=load_art("hero_action_%d" % identity,"duel_hero")
+	hero_art=load("res://assets/hero_portrait_%d.webp" % identity)
 	enemy_art=load_art("duel_guardian" if boss else ("duel_seal_mastiff" if seal_trial else "duel_beast"),"guardian0" if boss else "duel_beast")
 	scenery=load_art("duel_canyon","lantern-depths")
 	if boss and ResourceLoader.exists("res://assets/duel_depths.webp"):
@@ -180,7 +182,7 @@ func refresh_hud() -> void:
 	var supplies := "   ·   H  灵草 ×%d" % herbs if herbs>0 else ""
 	if charges>0:
 		supplies+="   ·   Q  灵契"
-	help_label.text="A D  移动   ·   空格  跳跃   ·   J  普攻   ·   S + J  下击   ·   K  闪避   ·   L  "+technique+supplies
+	help_label.text="A D  移动   ·   空格  跳跃   ·   J  "+technique_profile.attack+"   ·   S + J  下击   ·   K  闪避   ·   L  "+technique+supplies
 	if is_instance_valid(remedy_button):
 		var status := Expedition.remedy_block(stats)
 		var recipe: Dictionary = Expedition.REMEDIES[stats.remedy]
@@ -319,19 +321,24 @@ func strike(down: bool) -> void:
 	cooldown=.31
 	slash_time=.19
 	slash_angle=PI*.5 if diving else (0.0 if face>0 else PI)
-	var sword := Rect2(player+Vector2(-63,-38),Vector2(126,134)) if diving else Rect2(player+Vector2(-157 if face<0 else 5,-96),Vector2(152,106))
+	var length: int = technique_profile.get("basic",152)
+	var sword := Rect2(player+Vector2(-63,-38),Vector2(126,134)) if diving else Rect2(player+Vector2(-length-5 if face<0 else 5,-96),Vector2(length,106))
 	if not sword.intersects(enemy_box()):
 		sounded.emit("sword")
 		return
 	if diving:
 		velocity.y=-543
 		dash_used=false
-	var damage := (18 if diving else 14)+int(stats.get("slash",0))
+	var marked: int = stats.get("hero_mark",0)
+	var damage := (18 if diving else 14)+int(stats.get("slash",0))+marked
+	stats.erase("hero_mark")
 	if boss and phase!="open":
 		damage=ceili(damage*.38)
 		callout("甲壳护身 · 等它露出甲心")
 	stats.focus=mini(3,stats.focus+1)
 	damage_enemy(damage)
+	if marked>0:
+		callout("烛印引爆 · 追击 +%d" % marked)
 
 func burst() -> void:
 	if stats.focus<3:
@@ -344,15 +351,25 @@ func burst() -> void:
 	callout(technique)
 	slash_angle=0 if face>0 else PI
 	var delta := enemy.x-player.x
-	if delta*face>=-28 and absf(delta)<418 and FLOOR-player.y<139:
-		var damage: int = 27+int(stats.get("spell",0))
-		if phase=="tell" and move!="slam":
+	if delta*face>=-28 and absf(delta)<int(technique_profile.reach) and FLOOR-player.y<139:
+		var damage: int = 27+int(stats.get("spell",0))+int(technique_profile.damage)
+		if phase=="tell" and (move!="slam" or technique_profile.get("interrupt",false)):
 			set_phase("open",1.32)
 			if stats.relic==Expedition.Relic.FLAME and not stats.relic_spent:
 				stats.relic_spent=true
 				damage+=12
 			var refunded := Expedition.refund_counter_imprint(stats)
 			callout("破势铭 · 返还 1 点剑意" if refunded else "剑气打断 · 贴近反击")
+		var restored: int = mini(int(technique_profile.get("heal",0)),stats.maxhp-stats.hp)
+		if restored>0:
+			stats.hp+=restored
+			callout("月轮回光 · 气血 +%d" % restored)
+		var ward: int = technique_profile.get("guard",0)
+		if ward>0:
+			reduction=maxi(reduction,ward)
+			callout("护身 · 下次受击少承受 %d" % ward)
+		stats.focus=mini(3,stats.focus+int(technique_profile.get("focus",0)))
+		stats.hero_mark=int(technique_profile.get("mark",0))
 		damage_enemy(damage)
 	else:
 		changed.emit()
@@ -587,14 +604,15 @@ func _draw() -> void:
 	var enemy_tint := Color(1,.82,.65) if phase=="tell" else (Color(.89,1,.87) if phase=="open" else Color.WHITE)
 	painted_sprite(enemy_art,enemy+Vector2(0,3+rise),235 if boss else (139 if seal_trial else 107),enemy_face,enemy_tint)
 	if slash_time>0:
-		var pivot := player+Vector2(0,-47 if slash_angle!=PI*.5 else -24)
-		var arc_color := JADE if stats.focus==0 else Color("e4ffbb")
-		for i in 4:
-			draw_arc(pivot,80+i*7,slash_angle-1.01+i*.10,slash_angle+.94,26,Color(arc_color,.44-(i*.073)),8-i,true)
+		draw_basic_attack()
 	if burst_time>0:
-		var origin := player+Vector2(face*(48+183*(1-burst_time/.34)),-59)
-		for i in 3:
-			draw_arc(origin,77+i*9,slash_angle-.87,slash_angle+.79,30,Color(technique_color,burst_time/.34*(.92-.20*i)),8-i*2,true)
+		draw_technique()
+	if reduction>0:
+		draw_arc(player+Vector2(0,-66),73,0,TAU,38,Color(technique_color,.38),2,true)
+	if stats.get("hero_mark",0)>0:
+		var mark := enemy+Vector2(0,-117 if boss else -93)
+		draw_arc(mark,13,0,TAU,20,Color(technique_color,.8),2,true)
+		draw_circle(mark,3,technique_color,true,-1,true)
 	for item in effects:
 		var tint: Color = item.tint
 		tint.a=item.life/item.total
@@ -612,6 +630,52 @@ func draw_bar(rect: Rect2, fill: float, tint: Color) -> void:
 	draw_rect(rect.grow(2),Color("355753"))
 	draw_rect(rect,Color("142c2e"))
 	draw_rect(Rect2(rect.position,Vector2(rect.size.x*fill,rect.size.y)),tint)
+
+func draw_technique() -> void:
+	var fade := burst_time/.34
+	var reach := float(technique_profile.reach)
+	var origin := player+Vector2(face*(48+reach*.52*(1-fade)),-64)
+	var light := Color(technique_color,fade*.8)
+	match String(technique_profile.effect):
+		"arrow":
+			for i in 3:
+				var point := origin+Vector2(face*i*38,-19+i*18)
+				draw_line(point-Vector2(face*(174-i*26),0),point,light,6-i,true)
+				draw_line(point,point+Vector2(-face*19,-8),Color(technique_color.lightened(.6),fade),2,true)
+		"staff":
+			var tip := origin+Vector2(face*105,-54+92*(1-fade))
+			draw_line(player+Vector2(7*face,-63),tip,light,16,true)
+			draw_line(player+Vector2(7*face,-63),tip,Color(1,1,.76,fade),4,true)
+		"shield","seal","moon":
+			var pivot := (player+origin)*.5 if technique_profile.effect!="seal" else origin
+			for i in 3:
+				draw_arc(pivot,39+26*i+63*(1-fade),0,TAU,48,Color(technique_color,fade*(.72-i*.16)),5-i,true)
+			if technique_profile.effect=="moon":
+				draw_arc(origin,59,-1.3,1.3,36,light,15,true)
+		_:
+			var spread := .57 if technique_profile.effect=="ember" else 1.1
+			for i in 4:
+				var crest := origin-Vector2(face*i*21,0)
+				draw_arc(crest,53+i*12,slash_angle-spread,slash_angle+spread,32,Color(technique_color,fade*(.92-.16*i)),9-i*2,true)
+
+func draw_basic_attack() -> void:
+	var diving := slash_angle==PI*.5
+	var pivot := player+Vector2(0,-24 if diving else -47)
+	var tint := technique_color.lightened(.26)
+	var fade := minf(1.0,slash_time/.19)
+	var reach := float(technique_profile.get("basic",152))
+	if technique_profile.effect=="arrow" and not diving:
+		var tip := pivot+Vector2(face*(48+reach*(1-fade)),-14)
+		draw_line(tip-Vector2(face*89,0),tip,Color(tint,fade*.8),5,true)
+		draw_line(tip,tip-Vector2(face*20,-7),Color(tint,fade),2,true)
+	elif technique_profile.effect=="moon" and not diving:
+		var center := pivot+Vector2(face*(40+reach*.68*sin(PI*(1-fade))),-11)
+		draw_arc(center,32,slash_angle-1.46,slash_angle+1.46,28,Color(tint,fade*.85),6,true)
+		draw_arc(center,24,slash_angle-.97,slash_angle+.97,24,Color(tint,fade*.54),2,true)
+	else:
+		var span := 80.0 if diving else reach*.53
+		for i in 4:
+			draw_arc(pivot,span+i*7,slash_angle-1.01+i*.10,slash_angle+.94,26,Color(tint,fade*(.56-i*.08)),8-i,true)
 
 func draw_attack() -> void:
 	if phase=="tell":

@@ -119,6 +119,9 @@ func _ready() -> void:
 	if not await play_courier():
 		get_tree().quit(24)
 		return
+	if not await play_teaching():
+		get_tree().quit(25)
+		return
 	game.data.rank=3
 	game.migrate(1)
 	await capture("summer")
@@ -149,6 +152,9 @@ func _ready() -> void:
 	migrated.save_prefix = isolated+"-legacy"
 	if not migrated.read_save() or migrated.data.rank!=2 or migrated.data.story_chapter!=0 or migrated.data.stones!=421 or not migrated.relic_unlocked(0) or migrated.data.expedition_relic_preset!=-1 or not migrated.data.duty_orders.is_empty() or migrated.data.scout_token!=0 or migrated.data.hero_style!=-1 or not migrated.hero_unlocked(2) or migrated.data.remedies!=[0,0,0] or migrated.data.imprints!=[false,false] or migrated.data.expedition_imprint_preset!=-1:
 		get_tree().quit(13)
+		return
+	if migrated.data.lesson_pages!=0 or not migrated.data.disciple_lessons.is_empty():
+		get_tree().quit(26)
 		return
 	print("WINDOWED_RENDER_PASS")
 	get_tree().quit()
@@ -395,12 +401,12 @@ func play_action_duel() -> bool:
 		return false
 	find_text_button(modal,"选择掌门").pressed.emit()
 	find_text_button(modal,"选择悟空").pressed.emit()
-	if duel.player_name!="悟空" or duel.technique!="大闹天宫" or duel.hero_art.resource_path!="res://assets/hero_action_2.webp":
+	if duel.player_name!="悟空" or duel.technique!="大闹天宫" or duel.hero_art.resource_path!="res://assets/hero_portrait_2.webp":
 		return false
 	find_text_button(modal,"挑战古甲").pressed.emit()
 	duel.stats.focus=3
 	duel.player.x=565
-	duel.enemy.x=899
+	duel.enemy.x=835
 	send_key(KEY_L,true)
 	await physics_frames(3)
 	send_key(KEY_L,false)
@@ -408,6 +414,7 @@ func play_action_duel() -> bool:
 		return false
 	await capture("duel-wukong",.06)
 	close_scene()
+	game.choose_hero(State.Hero.LUO)
 	show_world()
 	action_expeditions=true
 	if game.data.herbs<2:
@@ -698,6 +705,148 @@ func play_courier() -> bool:
 		return false
 	print("COURIER_WINDOWED_PASS")
 	return true
+
+func play_teaching() -> bool:
+	game.reset()
+	game.choose_hero(0)
+	game.data.music=false
+	game.data.sound=false
+	action_expeditions=true
+	open_scene("recruit")
+	find_text_button(modal,"收首徒 桃桃 · 免费").pressed.emit()
+	find_text_button(modal,"收徒 石小满 · 42 灵石").pressed.emit()
+	find_text_button(modal,"传道阁").pressed.emit()
+	if not find_text_button(modal,"传授丹火诀").disabled:
+		return false
+	find_text_button(modal,"遗灯秘境").pressed.emit()
+	find_text_button(modal,"启程入境").pressed.emit()
+	choose_node("pool")
+	choose_node("rest")
+	choose_node("bridge")
+	find_text_button(modal,"带上战利品撤回").pressed.emit()
+	find_text_button(modal,"确认撤回").pressed.emit()
+	if game.data.lesson_pages!=1 or game.data.expedition_last.lesson_pages!=1:
+		return false
+	find_text_button(modal,"前往传道阁").pressed.emit()
+	await capture("teaching-hall")
+	find_text_button(modal,"传授丹火诀").pressed.emit()
+	find_text_button(modal,"确认传授").pressed.emit()
+	if scene_key!="teaching_rite" or game.disciple_lesson(0)!=State.Lesson.PILL_FIRE:
+		return false
+	if OS.has_environment("JADE_QA_RECORD_RITE"):
+		await capture_rite()
+	else:
+		await capture("teaching-entrance",.35)
+		await capture("teaching-seal",1.53)
+		await capture("teaching-result",1.52)
+	var dispatch := find_text_button(modal,"前往弟子派驻")
+	if not dispatch.visible or game.data.lesson_pages!=0:
+		return false
+	dispatch.pressed.emit()
+	press_tooltip("派驻丹房值守")
+	if game.duty_member("alchemy")!=0 or game.pill_fire_available():
+		return false
+	find_text_button(modal,"休整一日").pressed.emit()
+	if not game.pill_fire_available():
+		return false
+	game.data.herbs=6
+	open_remedies("garden")
+	find_text_button(modal,"炼制 · 1 草 / 10 石").pressed.emit()
+	if game.data.herbs!=5 or game.pill_fire_available() or find_text_button(modal,"炼制 · 2 草 / 10 石").disabled:
+		return false
+	find_text_button(modal,"炼制 · 2 草 / 10 石").pressed.emit()
+	if game.data.herbs!=3:
+		return false
+	close_scene()
+	open_expedition()
+	find_text_button(modal,"启程入境").pressed.emit()
+	choose_node("reeds")
+	choose_node("tower")
+	choose_node("tunnel")
+	find_text_button(modal,"带上战利品撤回").pressed.emit()
+	find_text_button(modal,"确认撤回").pressed.emit()
+	find_text_button(modal,"前往传道阁").pressed.emit()
+	find_text_button(modal,"石小满").pressed.emit()
+	find_text_button(modal,"传授寻灯诀").pressed.emit()
+	find_text_button(modal,"确认传授").pressed.emit()
+	find_text_button(modal,"跳过演出").pressed.emit()
+	if not find_text_button(modal,"前往弟子派驻").visible:
+		return false
+	find_text_button(modal,"前往弟子派驻").pressed.emit()
+	press_tooltip("派驻巡山勘察")
+	find_text_button(modal,"休整一日").pressed.emit()
+	close_scene()
+	open_expedition()
+	find_text_button(modal,"启程入境").pressed.emit()
+	choose_node("pool")
+	choose_node("rest")
+	choose_node("bridge")
+	var before: int = game.data.expedition.coins
+	find_text_button(modal,"归灯驿 · 寄存灯砂").pressed.emit()
+	find_text_button(modal,"确认寄存 1 份").pressed.emit()
+	if game.data.expedition.coins!=before-4:
+		return false
+	var saved := State.new()
+	saved.save_prefix=save_test_checkpoint("teaching-checkpoint")
+	if not saved.read_save() or saved.disciple_lesson(0)!=State.Lesson.PILL_FIRE or saved.disciple_lesson(1)!=State.Lesson.SEEK_LANTERN or saved.courier_fee()!=4:
+		return false
+	find_text_button(modal,"带上战利品撤回").pressed.emit()
+	find_text_button(modal,"确认撤回").pressed.emit()
+	close_scene()
+	open_hero_select("master")
+	find_text_button(modal,"烛九阴 · 青龙 · 鸿钧").pressed.emit()
+	await capture("hero-mythic-roster")
+	find_text_button(modal,"选择青龙").pressed.emit()
+	open_practice()
+	duel.enemy.x=duel.player.x+108
+	var hp: int = duel.stats.enemy
+	send_key(KEY_J,true)
+	await physics_frames(2)
+	send_key(KEY_J,false)
+	if duel.stats.enemy>=hp:
+		return false
+	await get_tree().create_timer(.40).timeout
+	duel.stats.focus=3
+	send_key(KEY_L,true)
+	await physics_frames(2)
+	send_key(KEY_L,false)
+	if duel.stats.focus!=1 or duel.technique!="东苍回锋":
+		return false
+	await capture("qinglong-duel",.04)
+	close_scene()
+	game.data.rank=1
+	open_hero_select("master")
+	find_text_button(modal,"嫦娥 · 精卫 · 麒麟").pressed.emit()
+	await capture("hero-celestial-roster")
+	find_text_button(modal,"选择嫦娥").pressed.emit()
+	open_practice()
+	duel.enemy.x=duel.player.x+107
+	duel.stats.hp=40
+	duel.stats.focus=3
+	hp=duel.stats.enemy
+	send_key(KEY_L,true)
+	await physics_frames(2)
+	send_key(KEY_L,false)
+	if duel.stats.hp!=54 or duel.stats.enemy!=hp-23:
+		return false
+	await capture("change-moon-duel",.04)
+	close_scene()
+	print("TEACHING_AND_MYTHIC_WINDOWED_PASS")
+	return true
+
+func capture_rite() -> void:
+	var start := Time.get_ticks_msec()
+	var directory := OS.get_environment("JADE_QA_OUT")
+	for frame in 72:
+		var wait := (start+frame*50-Time.get_ticks_msec())*.001
+		if wait>0:
+			await get_tree().create_timer(wait).timeout
+		await RenderingServer.frame_post_draw
+		var shot := get_viewport().get_texture().get_image()
+		if frame==70:
+			shot.save_png(directory+"/teaching-result.png")
+		shot.resize(960,600,Image.INTERPOLATE_BILINEAR)
+		shot.save_jpg(directory+"/rite-%03d.jpg" % frame,.90)
 
 func save_test_checkpoint(name: String) -> String:
 	var saved := State.new()

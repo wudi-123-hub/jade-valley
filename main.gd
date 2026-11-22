@@ -6,6 +6,7 @@ const UI = preload("res://ui.gd")
 const Chronicle = preload("res://chronicle.gd")
 const Expedition = preload("res://expedition.gd")
 const ActionDuel = preload("res://action_duel.gd")
+const TeachingScene = preload("res://teaching_scene.gd")
 const OPENING = preload("res://assets/opening.webp")
 const FOE_ART = [
 	preload("res://assets/foe0.webp"),preload("res://assets/foe1.webp"),
@@ -81,6 +82,9 @@ var draft_scout := false
 var draft_remedy := -1
 var remedy_return := "garden"
 var duty_selection := -1
+var teaching_member := 0
+var teaching_lesson := -1
+var hero_page := 0
 var relic_return := "expedition"
 var imprint_return := "relics"
 var courier_amount := 1
@@ -228,30 +232,42 @@ func hero_portrait(style := -1) -> Texture2D:
 
 func open_hero_select(destination: String) -> void:
 	hero_destination=destination
+	hero_page=int(maxi(0,game.data.hero_style)/3.0)
 	open_scene("hero_select")
 
 func hero_selection_window() -> void:
-	var host := window("选择掌门","单人出战 · 所有角色共用操作与技能效果","user",Vector2(1098,636))
-	var captions := ["女 · 洛水剑修","男 · 应龙剑修","齐天大圣 · 金箍棒"]
-	var accents := [UI.COLORS[3],UI.JADE,UI.OCHRE]
-	for i in State.HEROES.size():
-		var x := 29+i*351
+	var busy: bool = not game.data.expedition.is_empty()
+	var subtitle := "远征已启程，返回山门后可以更换掌门。" if busy else "九位掌门 · 单人出战 · 各有普攻和神技"
+	var host := window("选择掌门",subtitle,"user",Vector2(1098,726))
+	var tabs := ["洛神 · 应龙 · 悟空","烛九阴 · 青龙 · 鸿钧","嫦娥 · 精卫 · 麒麟"]
+	for page in tabs.size():
+		ui.button(host,tabs[page],Rect2(29+page*351,118,336,42),func():
+			hero_page=page
+			open_scene("hero_select",true),UI.GOLD,hero_page==page)
+	for slot in 3:
+		var i := hero_page*3+slot
+		var x := 29+slot*351
+		var power: Dictionary = State.HERO_MOVES[i]
+		var accent := Color(power.color)
 		var allowed: bool = game.hero_unlocked(i)
 		var selected: bool = i==game.data.hero_style
-		ui.framed(host,Rect2(x,125,336,455))
+		ui.framed(host,Rect2(x,177,336,497))
 		var stage := Control.new()
 		stage.clip_contents=true
 		stage.mouse_filter=Control.MOUSE_FILTER_IGNORE
-		ui.place(stage,host,Rect2(x+10,136,316,270))
+		ui.place(stage,host,Rect2(x+10,188,316,270))
 		ui.picture(stage,OPENING,Rect2(0,0,316,270),Color(.57,.71,.73),true)
 		ui.box(stage,Rect2(0,0,316,270),Color(.043,.12,.13,.38),UI.BORDER,7)
-		ui.picture(stage,hero_portrait(i),Rect2(24,11,268,255),Color.WHITE if allowed else Color(.68,.74,.73))
-		ui.label(host,State.HEROES[i],Rect2(x+18,414,300,40),25,UI.PAPER,true,true)
-		ui.label(host,"%s · %s" % [captions[i],State.HERO_TECHNIQUES[i]],Rect2(x+12,452,312,31),15,accents[i],true)
-		var caption := "选择%s" % State.HEROES[i] if allowed else "击败悬云观古甲解锁"
+		ui.picture(stage,hero_portrait(i),Rect2(24,11,268,255),Color.WHITE if allowed else Color(.74,.78,.78))
+		ui.box(stage,Rect2(9,12,69,30),Color(.023,.085,.082,.91),accent,7)
+		ui.label(stage,power.role,Rect2(9,12,69,30),14,accent,true)
+		ui.label(host,State.HEROES[i],Rect2(x+18,466,300,40),25,UI.PAPER,true,true)
+		ui.label(host,"%s  ·  %s" % [power.attack,power.name],Rect2(x+12,505,312,28),16,accent,true)
+		ui.label(host,power.hint,Rect2(x+27,541,282,50),15,UI.MUTE,true,false,true)
+		var caption: String = "选择%s" % State.HEROES[i] if allowed else power.gate
 		if selected:
 			caption="当前角色 · 继续"
-		ui.button(host,caption,Rect2(x+20,509,296,47),func(): use_hero(i),accents[i],allowed and not selected,10,allowed)
+		ui.button(host,caption,Rect2(x+20,608,296,47),func(): use_hero(i),accent,allowed and not selected,10,allowed and not busy)
 
 func use_hero(style: int) -> void:
 	if not game.choose_hero(style):
@@ -381,7 +397,7 @@ func toggle_tray(key: String) -> void:
 	sound_tick()
 	tray = Control.new()
 	var wide := key=="seasons"
-	var size_of_tray := Vector2(624,204) if wide else Vector2(355,330 if key=="work" else 220)
+	var size_of_tray := Vector2(624,204) if wide else Vector2(355,383 if key=="work" else 220)
 	var origin := Vector2(720-size_of_tray.x*.5,DOCK.position.y-size_of_tray.y-24) if wide else Vector2(433 if key=="work" else 578,DOCK.position.y-size_of_tray.y-24)
 	tray_rect = Rect2(origin,size_of_tray)
 	ui.place(tray,root,tray_rect)
@@ -393,7 +409,7 @@ func toggle_tray(key: String) -> void:
 	else:
 		var work := key=="work"
 		ui.label(tray,"宗门事务" if work else "修行",Rect2(20,8,310,37),21,UI.GOLD,false,true)
-		var rows := [0,1,2,-3,-1] if work else [-2,3,4]
+		var rows := [0,1,-4,2,-3,-1] if work else [-2,3,4]
 		for i in rows.size():
 			tray_action(rows[i],i)
 	fade_in(tray,.14)
@@ -420,7 +436,7 @@ func tray_season(index: int) -> void:
 
 func tray_action(index: int,row: int) -> void:
 	var rest := index==-1
-	var special := {-1:["休整","推进一日","moon",""],-2:["遗灯秘境","远征路线","compass","expedition"],-3:["宗门营造","建造升级","hall","facilities"]}
+	var special := {-1:["休整","推进一日","moon",""],-2:["遗灯秘境","远征路线","compass","expedition"],-3:["宗门营造","建造升级","hall","facilities"],-4:["传道阁","传授功法","scroll","teaching"]}
 	var info: Array = special[index] if index<0 else ACTIONS[index]
 	var accent: Color = UI.GOLD if index<0 else UI.COLORS[index]
 	var action: Callable = func(): open_scene(info[3])
@@ -496,13 +512,14 @@ func master_window() -> void:
 	ui.button(host,"更换掌门",Rect2(305,410,410,38),func(): open_hero_select("master"),UI.JADE)
 
 func inventory_window() -> void:
-	var host := window("行囊","","bag",Vector2(680,615))
+	var host := window("行囊","","bag",Vector2(680,701))
 	var entries := [
 		["gem","灵石",game.data.stones,"用于播种、招募弟子和布阵渡劫。",UI.GOLD],
 		["flame","修为",game.data.qi,"积攒修为，冲击新的境界。",UI.COLORS[4]],
 		["sprout","灵草",game.data.herbs,"可炼化、驯养灵兽或在斗法中疗伤。",UI.JADE],
 		["flame","灯砂",game.data.dust,"从秘境带回，用于升级宗门设施。",UI.OCHRE],
-		["compass","勘察札",game.data.scout_token,"来自巡山弟子，启程时可用于开出勘察小径。",UI.COLORS[3]]
+		["compass","勘察札",game.data.scout_token,"来自巡山弟子，启程时可用于开出勘察小径。",UI.COLORS[3]],
+		["scroll","功法残页",game.data.lesson_pages,"秘境平安归来时获得，可在传道阁教弟子功法。",UI.GOLD]
 	]
 	for i in entries.size():
 		var item: Array = entries[i]
@@ -587,6 +604,9 @@ func open_scene(kind: String,instant := false) -> void:
 		"remedies": remedies_window()
 		"recruit": recruit_window()
 		"duties": duties_window()
+		"teaching": teaching_window()
+		"teaching_confirm": teaching_confirm_window()
+		"teaching_rite": teaching_rite_window()
 		"pet": pet_window()
 		"journey": journey_window()
 		"rank": rank_window()
@@ -663,7 +683,8 @@ func open_remedies(from: String) -> void:
 
 func remedies_window() -> void:
 	var choosing := remedy_return=="expedition"
-	var host := window("丹房备战","灵草 %d 株 · 灵石 %d · 每趟可携带一份，平安归来时退回未用药剂。" % [game.data.herbs,game.data.stones],"flame",Vector2(1110,609))
+	var bonus := "丹火诀 · 本日首炉省 1 株灵草" if game.pill_fire_available() else "每趟可携带一份，平安归来时退回未用药剂。"
+	var host := window("丹房备战","灵草 %d 株 · 灵石 %d · %s" % [game.data.herbs,game.data.stones,bonus],"flame",Vector2(1110,609))
 	var tones := [UI.JADE,UI.COLORS[3],UI.OCHRE]
 	for i in Expedition.REMEDIES.size():
 		var recipe: Dictionary = Expedition.REMEDIES[i]
@@ -675,10 +696,11 @@ func remedies_window() -> void:
 		ui.label(host,recipe.name,Rect2(x+16,294,308,39),24,UI.PAPER,true,true)
 		ui.label(host,recipe.hint,Rect2(x+25,337,290,42),15,UI.MUTE,true,false,true)
 		ui.label(host,"库存 %d 份" % stock,Rect2(x+18,383,304,28),15,tones[i],true)
-		var brew := ui.button(host,"炼制 · %d 草 / %d 石" % [recipe.herbs,recipe.stones],Rect2(x+19,416,302,39),func():
+		var herbs: int = game.remedy_herb_cost(i)
+		var brew := ui.button(host,"炼制 · %d 草 / %d 石" % [herbs,recipe.stones],Rect2(x+19,416,302,39),func():
 			if game.brew_remedy(i):
 				open_scene("remedies",true),tones[i],not choosing,10,game.can_brew_remedy(i))
-		brew.tooltip_text="消耗 %d 株灵草和 %d 灵石。" % [recipe.herbs,recipe.stones]
+		brew.tooltip_text="消耗 %d 株灵草和 %d 灵石。" % [herbs,recipe.stones]
 		if choosing:
 			ui.button(host,"本趟已选" if i==draft_remedy else "携带"+recipe.name,Rect2(x+19,464,302,38),func():
 				draft_remedy=i
@@ -706,14 +728,15 @@ func recruit_window() -> void:
 	var name := "弟子已满员" if full else "收徒 %s · %d 灵石" % [State.PEOPLE[people.size()],game.recruit_cost()]
 	if people.is_empty():
 		name="收首徒 桃桃 · 免费"
-	ui.button(host,name,Rect2(26,379,395,55),func(): game.recruit();open_scene("recruit",true),UI.GOLD,true,10,not full and game.data.stones>=game.recruit_cost())
-	ui.button(host,"弟子派驻",Rect2(434,379,251,55),func():
+	ui.button(host,name,Rect2(26,379,282,55),func(): game.recruit();open_scene("recruit",true),UI.GOLD,true,10,not full and game.data.stones>=game.recruit_cost())
+	ui.button(host,"传道阁",Rect2(319,379,177,55),func():open_scene("teaching"),UI.GOLD)
+	ui.button(host,"弟子派驻",Rect2(508,379,177,55),func():
 		duty_selection=-1
 		open_scene("duties"),UI.JADE)
 
 func duties_window() -> void:
 	var people: Array = game.data.people
-	var host := window("弟子派驻","派驻次日生效。在岗弟子暂停供奉，撤回后方可随队出征。","hall",Vector2(1120,721))
+	var host := window("弟子派驻","派驻次日生效。在岗弟子暂停供奉。","hall",Vector2(1120,827))
 	if people.is_empty():
 		ui.label(host,"先在招贤台收一名弟子，再安排他的差事。",Rect2(28,133,1064,46),19,UI.PAPER,true)
 	else:
@@ -727,6 +750,9 @@ func duties_window() -> void:
 				caption="随队出征"
 			elif not post.is_empty():
 				caption="明日到岗" if game.duty_member(post,true)<0 else "正在驻岗"
+			var lesson: int = game.disciple_lesson(member)
+			if lesson>=0:
+				caption=String(State.LESSONS[lesson].name)
 			var tile := ui.button(host,"",Rect2(x,125,126,78),func(): duty_selection=member;open_scene("duties",true),UI.GOLD,chosen,10,not away)
 			tile.tooltip_text=people[member]
 			ui.label(tile,people[member],Rect2(6,9,114,33),17,UI.INK if chosen else UI.PAPER,true,true)
@@ -735,17 +761,24 @@ func duties_window() -> void:
 		var row: Array = State.DUTIES[i]
 		var post: String = row[0]
 		var member: int = game.duty_member(post)
-		var y := 223+i*132
-		ui.framed(host,Rect2(28,y,1064,119))
-		ui.mark(host,row[3],Rect2(52,y+29,50,50),UI.GOLD)
-		ui.label(host,row[1],Rect2(120,y+17,356,33),21,UI.PAPER,false,true)
-		ui.label(host,row[2],Rect2(120,y+49,548,31),15,UI.MUTE)
+		var y := 220+i*126
+		ui.framed(host,Rect2(28,y,1064,113))
+		ui.mark(host,row[3],Rect2(52,y+27,50,50),UI.GOLD)
+		ui.label(host,row[1],Rect2(120,y+11,356,33),21,UI.PAPER,false,true)
+		ui.label(host,row[2],Rect2(120,y+43,548,31),15,UI.MUTE)
 		var status: String = "暂无驻岗弟子" if member<0 else "%s · %s" % [people[member],"明日到岗" if game.duty_member(post,true)<0 else "在岗"]
 		if post=="scout":
 			status+=" · 已有 1 张勘察札" if game.data.scout_token>0 else " · 勘察进度 %d / 3 日" % game.data.scout_days
-		ui.label(host,status,Rect2(120,y+79,548,24),14,UI.JADE)
-		var can_post: bool = duty_selection>=0 and duty_selection!=member and not game.member_traveling(duty_selection)
+			if game.courier_discount_on_departure()>0:
+				status+=" · 寻灯诀已生效"
+		elif post=="alchemy" and member>=0 and game.duty_member(post,true)>=0:
+			status+=" · 本日首炉可减免" if game.pill_fire_available() else " · 本日减免已用"
+		ui.label(host,status,Rect2(120,y+74,566,24),14,UI.JADE)
+		var qualified: bool = game.duty_qualified(post,duty_selection)
+		var can_post: bool = duty_selection>=0 and duty_selection!=member and not game.member_traveling(duty_selection) and qualified
 		var label: String = ("改派%s" if member>=0 else "派驻%s") % people[duty_selection] if duty_selection>=0 else "先点选弟子"
+		if duty_selection>=0 and not qualified:
+			label="需先学习丹火诀"
 		var dispatch := ui.button(host,label,Rect2(702,y+36,226,46),func():
 			if game.assign_duty(post,duty_selection):
 				open_scene("duties",true),UI.OCHRE,true,10,can_post)
@@ -753,10 +786,111 @@ func duties_window() -> void:
 		ui.button(host,"撤回",Rect2(937,y+36,124,46),func():
 			if game.assign_duty(post,-1):
 				open_scene("duties",true),UI.JADE,false,10,member>=0)
-	ui.button(host,"返回招贤台",Rect2(28,630,305,47),func():open_scene("recruit",true),UI.JADE)
-	ui.button(host,"休整一日",Rect2(790,630,302,47),func():
+	ui.button(host,"返回招贤台",Rect2(28,739,305,47),func():open_scene("recruit",true),UI.JADE)
+	ui.button(host,"传道阁",Rect2(350,739,284,47),func():open_scene("teaching"),UI.GOLD)
+	ui.button(host,"休整一日",Rect2(790,739,302,47),func():
 		game.record("山门","宗门休整一日。")
 		open_scene("duties",true),UI.GOLD)
+
+func teaching_window() -> void:
+	var people: Array = game.data.people
+	teaching_member=clampi(teaching_member,0,maxi(0,people.size()-1))
+	var host := window("传道阁","持有 %d 张功法残页 · 每名弟子可选一门主修" % game.data.lesson_pages,"scroll",Vector2(1100,711))
+	var pane := ui.framed(host,Rect2(27,123,326,446))
+	var stage := Control.new()
+	stage.clip_contents=true
+	stage.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	ui.place(stage,pane,Rect2(11,11,304,226))
+	ui.picture(stage,TeachingScene.PAVILION,Rect2(0,0,304,226),Color(.74,.81,.78),true)
+	ui.box(stage,Rect2(0,169,304,57),Color(.02,.07,.06,.88),UI.BORDER,4)
+	var member_name := "等候弟子" if people.is_empty() else String(people[teaching_member])
+	var learned: int = game.disciple_lesson(teaching_member)
+	if not people.is_empty():
+		ui.picture(stage,STUDENT_ART[teaching_member%STUDENT_ART.size()],Rect2(69,14,166,157))
+	ui.label(stage,member_name,Rect2(9,168,286,32),22,UI.PAPER,true,true)
+	ui.label(stage,"尚未主修" if learned<0 else State.LESSONS[learned].name,Rect2(10,200,284,21),13,UI.GOLD,true)
+	for member in people.size():
+		var x := 15+int(member%2)*150
+		var y := 249+int(member/2.0)*44
+		var select := ui.button(pane,people[member],Rect2(x,y,143,38),func():
+			teaching_member=member
+			open_scene("teaching",true),UI.JADE,member==teaching_member)
+		var study: int = game.disciple_lesson(member)
+		select.tooltip_text="尚未主修" if study<0 else State.LESSONS[study].name
+	var reason: String = game.lesson_block_reason(teaching_member)
+	for i in State.LESSONS.size():
+		var power: Dictionary = State.LESSONS[i]
+		var y := 123+i*230
+		var accent := UI.OCHRE if i==State.Lesson.PILL_FIRE else UI.JADE
+		ui.framed(host,Rect2(375,y,698,216))
+		ui.box(host,Rect2(402,y+30,81,81),UI.WELL,accent,16)
+		ui.mark(host,power.glyph,Rect2(424,y+52,37,37),accent)
+		ui.label(host,power.name,Rect2(506,y+20,534,44),26,UI.PAPER,false,true)
+		ui.label(host,power.benefit,Rect2(508,y+67,525,42),16,UI.MUTE,false,false,true)
+		ui.line(host,Vector2(402,y+127),Vector2(1046,y+127))
+		ui.label(host,"消耗 1 张功法残页",Rect2(409,y+150,280,39),15,accent)
+		var teach := ui.button(host,"已习得" if learned==i else "传授"+power.name,Rect2(751,y+147,293,49),func():
+			teaching_lesson=i
+			open_scene("teaching_confirm"),accent,true,10,reason.is_empty())
+		teach.tooltip_text=reason
+	ui.label(host,"走完秘境第三段后平安撤回得 1 张，破关得 2 张。",Rect2(30,579,1040,39),16,UI.GOLD,true)
+	ui.button(host,"招贤台",Rect2(27,630,300,45),func():open_scene("recruit"),UI.JADE)
+	ui.button(host,"弟子派驻",Rect2(404,630,294,45),func():
+		duty_selection=teaching_member if not people.is_empty() else -1
+		open_scene("duties"),UI.JADE)
+	ui.button(host,"遗灯秘境",Rect2(773,630,300,45),open_expedition,UI.OCHRE)
+
+func teaching_confirm_window() -> void:
+	var power: Dictionary = State.LESSONS[teaching_lesson]
+	var host := window("传授"+power.name,"消耗 1 张残页，定为%s的主修。" % game.data.people[teaching_member],power.glyph,Vector2(666,326))
+	ui.label(host,power.benefit,Rect2(27,116,612,50),19,UI.PAPER,true,true,true)
+	ui.label(host,"传授后，该弟子的主修固定。",Rect2(27,168,612,32),15,UI.GOLD,true)
+	ui.button(host,"再考虑一下",Rect2(27,235,283,51),func():open_scene("teaching",true),UI.JADE)
+	ui.button(host,"确认传授",Rect2(343,235,296,51),func():
+		if game.teach_lesson(teaching_member,teaching_lesson):
+			sound_tick("chime")
+			open_scene("teaching_rite",true),UI.OCHRE,true)
+
+func teaching_rite_window() -> void:
+	var power: Dictionary = State.LESSONS[teaching_lesson]
+	var member_name: String = game.data.people[teaching_member]
+	var tint := Color("#ffdc99") if teaching_lesson==State.Lesson.PILL_FIRE else Color("#b9f3cb")
+	var host := window("开卷传道","","scroll",Vector2(1278,773))
+	var stage := Control.new()
+	stage.clip_contents=true
+	stage.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	ui.place(stage,host,Rect2(24,116,1230,565))
+	var rite := TeachingScene.new()
+	rite.accent=tint
+	rite.scenery=ui.picture(stage,TeachingScene.PAVILION,Rect2(Vector2.ZERO,stage.size),Color.WHITE,true)
+	rite.scenery.pivot_offset=stage.size*.5
+	rite.teacher=ui.picture(stage,hero_portrait(),Rect2(102,134,338,410))
+	rite.student=ui.picture(stage,STUDENT_ART[teaching_member%STUDENT_ART.size()],Rect2(779,229,305,314))
+	rite.student.flip_h=true
+	rite.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	ui.place(rite,stage,Rect2(Vector2.ZERO,stage.size))
+	var result := ui.box(stage,Rect2(302,413,626,124),Color("#0a201b"),tint,12,true)
+	ui.label(result,"%s领悟 · %s" % [member_name,power.name],Rect2(18,12,590,49),28,tint,true,true)
+	ui.label(result,power.benefit,Rect2(18,67,590,38),16,UI.PAPER,true)
+	var back := ui.button(host,"返回传道阁",Rect2(24,699,365,49),func():open_scene("teaching",true),UI.JADE)
+	var assign := ui.button(host,"前往弟子派驻",Rect2(865,699,389,49),func():
+		duty_selection=teaching_member
+		open_scene("duties",true),UI.OCHRE,true)
+	if not game.data.motion:
+		rite.play_frame(1.0)
+		return
+	result.modulate.a=0
+	back.hide()
+	assign.hide()
+	var playback := rite.create_tween()
+	var skip := ui.button(host,"跳过演出",Rect2(889,699,365,49),func():playback.custom_step(5.0),UI.JADE)
+	rite.play_frame(0)
+	playback.tween_method(rite.play_frame,0.0,1.0,3.25)
+	playback.parallel().tween_property(result,"modulate:a",1.0,.54).set_delay(2.22)
+	playback.tween_callback(func():
+		skip.hide()
+		back.show()
+		assign.show())
 
 func pet_window() -> void:
 	var host := window("灵兽园","每只灵兽每日汇聚 3 修为。    持有 %d 株灵草" % game.data.herbs,"paw",Vector2(830,450))
@@ -1083,9 +1217,9 @@ func battle_window() -> void:
 				open_scene("story"),UI.OCHRE,true)
 		return
 	var actions := [
-		["attack","如意棒" if game.data.hero_style==2 else "御剑斩","伤害 %d · 剑意 +1" % game.hit_preview(),"training","sword",UI.OCHRE],
+		["attack",State.HERO_MOVES[maxi(0,game.data.hero_style)].attack,"伤害 %d · 剑意 +1" % game.hit_preview(),"training","sword",UI.OCHRE],
 		["guard","架剑","减伤 · 剑意 +2","none","shield",UI.COLORS[3]],
-		["spell",State.HERO_TECHNIQUES[maxi(0,game.data.hero_style)],"伤害 %d · 剑意 −3" % game.spell_damage(),"rank","spark",UI.COLORS[4]],
+		["spell",State.HERO_MOVES[maxi(0,game.data.hero_style)].name,"伤害 %d · 剑意 −3" % game.spell_damage(),"rank","spark",UI.COLORS[4]],
 		["herb","灵草疗伤","恢复 31 · 持有 %d 株" % game.expedition_herbs(),"garden","sprout",UI.JADE]
 	]
 	for i in actions.size():
@@ -1158,7 +1292,10 @@ func expedition_window() -> void:
 	ui.box(veil,Rect2(0,197,477,231),Color(.045,.12,.095,.93),UI.BORDER,8)
 	ui.label(veil,"踏过五段山路，找到遗灯之门。",Rect2(21,206,435,36),21,UI.PAPER,false,true)
 	ui.label(veil,"气血与灵草会带进下一场战斗。主动撤回可结算战利品。败退会丢失随身灯砂与灵草，灵石减半。",Rect2(21,266,431,62),16,UI.PAPER,false,false,true)
-	if region==0 and action_expeditions:
+	var discount: int = game.courier_discount_on_departure()
+	if discount>0:
+		ui.label(veil,"寻灯诀 · 本趟归灯驿费减至 %d 灵石" % (Expedition.COURIER_FEE-discount),Rect2(21,242,435,23),14,UI.GOLD)
+	elif region==0 and action_expeditions:
 		ui.label(veil,"青龙谷遭遇 · 横版即时斗法",Rect2(21,242,435,23),14,UI.GOLD)
 	var forecast: Dictionary = game.expedition_forecast(draft_scout)
 	var commission: String = Expedition.COMMISSIONS[draft_commission][0] if not draft_commission.is_empty() else "尚未接取委托"
@@ -1424,7 +1561,7 @@ func expedition_route() -> void:
 		var courier_button := ui.button(host,"归灯驿 · 寄存灯砂" if courier==0 else "归灯驿 · 已寄存",Rect2(393,643,366,52),func():
 			courier_amount=1
 			open_scene("courier"),UI.GOLD,false,10,reason.is_empty())
-		courier_button.tooltip_text="花费 %d 本趟灵石寄存灯砂，败退也可结算。" % Expedition.COURIER_FEE if reason.is_empty() else reason
+		courier_button.tooltip_text="花费 %d 本趟灵石寄存灯砂，败退也可结算。" % game.courier_fee() if reason.is_empty() else reason
 	if pending:
 		ui.button(host,"继续战斗",Rect2(790,643,344,52),func():
 			if game.resume_expedition_battle():
@@ -1446,7 +1583,9 @@ func courier_window() -> void:
 	var host := window("归灯驿","每趟可寄一次。寄出的灯砂在本趟结束时到账，败退也能带回。","compass",Vector2(868,568))
 	ui.box(host,Rect2(26,123,816,61),UI.WELL,UI.BORDER,10)
 	ui.label(host,"随身战利品    %d 灵石 · %d 灯砂" % [route.coins,route.dust],Rect2(45,135,397,34),17,UI.PAPER)
-	ui.label(host,"驿费    %d 灵石" % Expedition.COURIER_FEE,Rect2(543,135,272,34),17,UI.GOLD,true)
+	var fee: int = game.courier_fee()
+	var fee_label := "寻灯诀 · 驿费 %d 灵石" if fee<Expedition.COURIER_FEE else "驿费    %d 灵石"
+	ui.label(host,fee_label % fee,Rect2(543,135,272,34),17,UI.GOLD,true)
 	ui.label(host,"选择寄存数量",Rect2(28,195,808,31),17,UI.GOLD,false,true)
 	for amount in range(1,Expedition.COURIER_LIMIT+1):
 		var reason: String = game.courier_block_reason(amount)
@@ -1486,6 +1625,9 @@ func extraction_window() -> void:
 		details.append("放弃封存的 %d 灯砂" % sealed)
 	if courier>0:
 		details.append("含归灯驿寄存 %d" % courier)
+	var pages: int = game.expedition_page_reward("撤回")
+	if pages>0:
+		details.append("功法残页 +%d" % pages)
 	if not details.is_empty():
 		ui.label(host,"    ·    ".join(details),Rect2(30,157,570,28),14,UI.GOLD,true)
 	ui.button(host,"继续深入",Rect2(28,191,278,53),func():open_scene("expedition"),UI.JADE)
@@ -1497,7 +1639,8 @@ func expedition_result_window() -> void:
 	var result: Dictionary = game.data.expedition_last
 	if result.is_empty():
 		return
-	var host := window("远征"+result.result,State.MAPS[result.area][1]+" · 战利品已送回宗门","spark",Vector2(815,556))
+	var pages: int = result.get("lesson_pages",0)
+	var host := window("远征"+result.result,State.MAPS[result.area][1]+" · 战利品已送回宗门","spark",Vector2(815,623 if pages>0 else 556))
 	for i in 4:
 		var display: Array = [["灵石",result.coins,"gem"],["灯砂",result.dust,"flame"],["灵草",result.herbs,"sprout"],["修为",result.qi,"spark"]][i]
 		var x := 28+i*190
@@ -1540,6 +1683,11 @@ func expedition_result_window() -> void:
 		details.append("归灯驿送回 %d 灯砂" % courier)
 	if not details.is_empty():
 		ui.label(host,"    ·    ".join(details),Rect2(28,486,751,44),16,UI.JADE,true)
+	if pages>0:
+		ui.box(host,Rect2(28,544,751,52),UI.WELL,UI.BORDER,8)
+		ui.mark(host,"scroll",Rect2(46,558,24,24),UI.GOLD)
+		ui.label(host,"带回 %d 张功法残页" % pages,Rect2(84,548,374,44),19,UI.GOLD,false,true)
+		ui.button(host,"前往传道阁",Rect2(522,551,245,38),func():open_scene("teaching"),UI.OCHRE,true)
 
 func facilities_window() -> void:
 	var host := window("宗门营造","当前持有 %d 灵石 · %d 灯砂" % [game.data.stones,game.data.dust],"hall",Vector2(915,620))
@@ -1803,9 +1951,49 @@ func smoke_test() -> void:
 	print("IMPRINT_SMOKE_", "PASS" if imprints else "FAIL")
 	var courier := smoke_courier("撤回") and smoke_courier("破关") and smoke_courier("败退")
 	print("COURIER_SMOKE_", "PASS" if courier else "FAIL")
+	var teaching := smoke_teaching()
+	print("TEACHING_SMOKE_", "PASS" if teaching else "FAIL")
 	music.free()
 	sfx.free()
-	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies and seal and imprints and courier else 1)
+	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies and seal and imprints and courier and teaching else 1)
+
+func smoke_teaching() -> bool:
+	game=State.new()
+	game.transient=true
+	if game.teach_lesson(0,0) or not game.recruit() or not game.recruit() or game.assign_duty("alchemy",0) or game.teach_lesson(0,0):
+		return false
+	if not game.start_expedition(-1,-1,0,0) or not game.expedition_take("pool") or not game.expedition_take("rest") or not game.expedition_take("bridge"):
+		return false
+	if not game.extract_expedition() or game.data.lesson_pages!=1 or game.data.expedition_last.lesson_pages!=1:
+		return false
+	if not game.teach_lesson(0,State.Lesson.PILL_FIRE) or game.teach_lesson(0,State.Lesson.SEEK_LANTERN) or not game.assign_duty("alchemy",0) or game.pill_fire_available():
+		return false
+	if not game.hero_unlocked(State.Hero.QINGLONG) or game.data.lesson_pages!=0:
+		return false
+	game.record("测试","推进一日")
+	game.data.herbs=4
+	if game.remedy_herb_cost(0)!=1 or not game.brew_remedy(0) or game.data.herbs!=3 or game.remedy_herb_cost(0)!=2 or not game.brew_remedy(0) or game.data.herbs!=1:
+		return false
+	game.record("测试","推进一日")
+	if not game.can_brew_remedy(0) or not game.brew_remedy(0) or game.data.herbs!=0:
+		return false
+	if not game.start_expedition(-1,-1,0,0):
+		return false
+	game.finish_expedition("破关")
+	if game.data.lesson_pages!=2 or not game.teach_lesson(1,State.Lesson.SEEK_LANTERN) or not game.assign_duty("scout",1):
+		return false
+	game.record("测试","推进一日")
+	if not game.start_expedition(-1,-1,0,0) or game.choose_hero(State.Hero.QINGLONG):
+		return false
+	if not game.assign_duty("scout",-1) or game.courier_discount_on_departure()>0 or game.courier_fee()!=4:
+		return false
+	if not game.expedition_take("pool") or not game.expedition_take("rest") or not game.expedition_take("bridge"):
+		return false
+	game.data.expedition.coins=4
+	if not game.dispatch_courier(1) or game.data.expedition.coins!=0:
+		return false
+	game.finish_expedition("败退")
+	return game.data.lesson_pages==1 and game.data.expedition_last.lesson_pages==0
 
 func smoke_courier(settlement: String) -> bool:
 	game=State.new()
@@ -2281,12 +2469,32 @@ func smoke_hero_selection() -> bool:
 	var balance: int = game.data.stones
 	ok=ok and game.recruit_cost()==0 and game.recruit() and game.recruit_cost()>0 and game.data.stones>=balance
 	ok=ok and game.unlock_wukong() and not game.unlock_wukong() and game.choose_hero(2) and game.hero_name()=="悟空"
+	for i in range(State.Hero.ZHULONG,State.HEROES.size()):
+		ok=ok and not game.hero_unlocked(i)
+	game.data.expedition_commissions=2
+	game.data.disciple_lessons={0:State.Lesson.PILL_FIRE}
+	game.data.story_chapter=2
+	game.data.rank=1
+	game.data.expedition_wins=[1,1,1,0]
 	var values := {"expedition_node":"trail","tier":0,"result":0,"hp":90,"maxhp":90,"enemy":51,"maxenemy":51,"focus":3,"relic":-1}
 	for i in State.HEROES.size():
+		var move: Dictionary = State.HERO_MOVES[i]
+		ok=ok and game.choose_hero(i) and game.hero_name()==State.HEROES[i]
 		var arena := ActionDuel.new()
 		arena.setup(values.duplicate(true),0,-1,0,false,true,i,State.HEROES[i])
-		arena.player.x=arena.enemy.x-185
+		ok=ok and arena.hero_art.resource_path=="res://assets/hero_portrait_%d.webp"%i
+		arena.player.x=arena.enemy.x-(530 if i==State.Hero.JINGWEI else 185)
+		arena.stats.hp=50
+		if i==State.Hero.HONGJUN:
+			arena.phase="tell"
+			arena.move="slam"
 		arena.burst()
-		ok=ok and arena.stats.enemy==24 and arena.stats.focus==0 and arena.technique==State.HERO_TECHNIQUES[i]
+		ok=ok and arena.stats.enemy==24-int(move.damage) and arena.stats.focus==int(move.get("focus",0)) and arena.technique==move.name
+		ok=ok and arena.stats.hp==50+int(move.get("heal",0)) and arena.reduction==int(move.get("guard",0))
+		ok=ok and (i!=State.Hero.HONGJUN or arena.phase=="open")
+		arena.player.x=arena.enemy.x-115
+		var hp: int = arena.stats.enemy
+		arena.strike(false)
+		ok=ok and hp-arena.stats.enemy==mini(hp,14+int(move.get("mark",0))) and not arena.stats.has("hero_mark")
 		arena.free()
 	return ok

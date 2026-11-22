@@ -12,15 +12,32 @@ const MAPS = [
 const RANKS = ["炼气","筑基","金丹","元婴","飞升"]
 const NEEDS = [78,115,165,230]
 const PEOPLE = ["桃桃","石小满","竹阿七","丹栗","白小羽","松果儿","绵绵","霜阿宝"]
-const HEROES = ["洛神","应龙","悟空"]
-const HERO_TECHNIQUES = ["洛水汤汤","龙战于野","大闹天宫"]
+enum Hero { LUO, YING, WUKONG, ZHULONG, QINGLONG, HONGJUN, CHANG_E, JINGWEI, QILIN }
+const HEROES = ["洛神","应龙","悟空","烛九阴","青龙","鸿钧","嫦娥","精卫","麒麟"]
+const HERO_MOVES = [
+	{"name":"洛水汤汤","attack":"洛水剑","role":"攻守","hint":"水刃命中后，减轻下一次受击。","color":"91e9ff","damage":0,"reach":418,"guard":10,"effect":"tide","gate":"开局可选"},
+	{"name":"龙战于野","attack":"应龙爪","role":"强攻","hint":"以龙息贯穿前方，造成高额伤害。","color":"ffbe89","damage":5,"reach":418,"effect":"dragon","gate":"开局可选"},
+	{"name":"大闹天宫","attack":"如意棒","role":"爆发","hint":"挥出重棒，打击近处敌人。","color":"ffca7b","damage":11,"reach":300,"effect":"staff","gate":"击败悬云观古甲解锁"},
+	{"name":"烛影蚀夜","attack":"烛影枪","role":"追击","hint":"火枪命中留下烛印，下次普攻额外造成 9 点伤害。","color":"e3a5ff","basic":178,"damage":2,"reach":405,"mark":9,"effect":"ember","gate":"完成 2 次远征委托"},
+	{"name":"东苍回锋","attack":"裂风扇","role":"连击","hint":"扇刃命中造成伤害，并返还 1 点剑意。","color":"9cf2af","basic":184,"damage":-3,"reach":420,"focus":1,"effect":"wind","gate":"传授第一门弟子功法"},
+	{"name":"太虚定尘","attack":"拂尘扫","role":"控制","hint":"拂尘击伤敌人。预警时可打断强招，包括砸地。","color":"ffdf9c","damage":-1,"reach":375,"interrupt":true,"effect":"seal","gate":"完成第二章主线"},
+	{"name":"月照归心","attack":"回月轮","role":"回复","hint":"月轮造成伤害，命中后恢复至多 14 气血。","color":"dec3ff","basic":193,"damage":-4,"reach":393,"heal":14,"effect":"moon","gate":"突破至筑基"},
+	{"name":"填海流羽","attack":"碎潮弓","role":"远攻","hint":"羽箭能命中比其他神技更远的敌人。","color":"a5f6f2","basic":256,"damage":1,"reach":572,"effect":"arrow","gate":"击破双翎谷灯门"},
+	{"name":"承天金障","attack":"金鳞盾","role":"护身","hint":"金障造成伤害，命中后减轻 19 点下一次伤害。","color":"ffdd88","damage":-2,"reach":353,"guard":19,"effect":"shield","gate":"击破三处不同的灯门"}
+]
 const PETS = ["苔苔","赤绒","枫啾","雪团"]
 const FOES = ["苔团兽","赤尾灵狐","枫火灵雀","玄霜雪狸"]
 const CROPS = [["青露草",9,3,3],["火纹芝",18,4,5]]
+enum Lesson { PILL_FIRE, SEEK_LANTERN }
+const LESSONS = [
+	{"name":"丹火诀","post":"alchemy","glyph":"flame","benefit":"值守丹房时，每日第一炉少耗 1 株灵草。"},
+	{"name":"寻灯诀","post":"scout","glyph":"compass","benefit":"巡山时为新启程的远征筹措一半驿费。"}
+]
 const DUTIES = [
 	["garden","药圃照料","每次采收额外获得 2 株灵草。","sprout"],
 	["works","营造协作","每次升级宗门设施少付 12 灵石。","hall"],
-	["scout","巡山勘察","在岗每满 3 日取得一张勘察札，最多存 1 张。","compass"]
+	["scout","巡山勘察","在岗每满 3 日取得一张勘察札，最多存 1 张。","compass"],
+	["alchemy","丹房值守","由丹火诀弟子值守，每日第一炉少耗 1 株灵草。","flame"]
 ]
 const TASKS = [
 	["初开药圃","采收任意一块药田。","harvest"],
@@ -44,6 +61,7 @@ const DEFAULT = {
 	"expedition_imprint_preset":-1,"imprints":[false,false],
 	"remedies":[0,0,0],
 	"duty_orders":{},"scout_days":0,"scout_token":0,
+	"lesson_pages":0,"disciple_lessons":{},"pill_fire_used_day":0,
 	"sound":true,"music":true,"motion":true
 }
 
@@ -79,10 +97,23 @@ func hero_name() -> String:
 	return HEROES[data.hero_style] if data.hero_style>=0 and data.hero_style<HEROES.size() else "掌门"
 
 func hero_unlocked(style: int) -> bool:
-	return style in [0,1] or (style==2 and (data.wukong_unlocked or data.expedition_wins[0]>0))
+	match style:
+		Hero.LUO, Hero.YING: return true
+		Hero.WUKONG: return data.wukong_unlocked or data.expedition_wins[0]>0
+		Hero.ZHULONG: return data.expedition_commissions>=2
+		Hero.QINGLONG: return not data.disciple_lessons.is_empty()
+		Hero.HONGJUN: return data.story_chapter>=2
+		Hero.CHANG_E: return data.rank>0
+		Hero.JINGWEI: return data.expedition_wins[1]>0
+		Hero.QILIN:
+			var cleared := 0
+			for wins in data.expedition_wins:
+				cleared+=int(wins>0)
+			return cleared>=3
+	return false
 
 func choose_hero(style: int) -> bool:
-	if not hero_unlocked(style):
+	if not hero_unlocked(style) or not data.expedition.is_empty():
 		return false
 	data.hero_style=style
 	return true
@@ -187,6 +218,35 @@ func member_traveling(member: int) -> bool:
 		return false
 	return data.people[member]==data.expedition.guide
 
+func disciple_lesson(member: int) -> int:
+	return int(data.disciple_lessons.get(member,-1))
+
+func lesson_block_reason(member: int) -> String:
+	if member<0 or member>=data.people.size():
+		return "先在招贤台收下一名弟子。"
+	if disciple_lesson(member)>=0:
+		return "这名弟子已经选定主修。"
+	if member_traveling(member):
+		return "等弟子回到山门后再传道。"
+	if data.lesson_pages<1:
+		return "走完秘境第三段后平安撤回可带回 1 张，破关可带回 2 张。"
+	return ""
+
+func teach_lesson(member: int,lesson: int) -> bool:
+	if lesson<0 or lesson>=LESSONS.size() or not lesson_block_reason(member).is_empty():
+		return false
+	data.lesson_pages-=1
+	data.disciple_lessons[member]=lesson
+	record("弟子","%s领悟了%s。" % [data.people[member],LESSONS[lesson].name],false)
+	return true
+
+func duty_qualified(post: String,member: int) -> bool:
+	return post!="alchemy" or disciple_lesson(member)==Lesson.PILL_FIRE
+
+func active_lesson(post: String,lesson: int) -> bool:
+	var member := duty_member(post,true)
+	return member>=0 and disciple_lesson(member)==lesson
+
 func guide_available(member: int) -> bool:
 	return member==-1 or (member>=0 and member<data.people.size() and member_duty(member).is_empty())
 
@@ -197,6 +257,8 @@ func assign_duty(post: String,member: int) -> bool:
 			title=row[1]
 			break
 	if title.is_empty() or member< -1 or member>=data.people.size() or duty_member(post)==member or member_traveling(member):
+		return false
+	if member>=0 and not duty_qualified(post,member):
 		return false
 	var previous := member_duty(member)
 	if not previous.is_empty():
@@ -349,12 +411,13 @@ func foe_damage(move: Array) -> int:
 
 func hit_preview() -> int:
 	var strength: int = 21+int(battle.get("rank",data.rank))*3+int(battle.get("slash",0))+(17 if battle.charge else 0)
-	strength=maxi(1,strength-int(battle.get("frost",0)))
+	strength=maxi(1,strength-int(battle.get("frost",0))+int(battle.get("hero_mark",0)))
 	return ceili(strength*.52) if next_move()[2]=="ward" else strength
 
 func spell_damage() -> int:
 	var bonus: int = 12 if flame_relic_ready(next_move()) else 0
-	return 34+int(battle.get("rank",data.rank))*5+int(battle.get("spell",0))+bonus
+	var move_bonus: int = HERO_MOVES[data.hero_style].damage if data.hero_style>=0 else 0
+	return 34+int(battle.get("rank",data.rank))*5+int(battle.get("spell",0))+bonus+move_bonus
 
 func flame_relic_ready(move: Array) -> bool:
 	return battle.get("relic",-1)==Expedition.Relic.FLAME and not battle.get("relic_spent",false) and move[2] in ["heavy","ward"]
@@ -379,6 +442,7 @@ func strike(tactic: String) -> void:
 	var guard := tactic=="guard"
 	var heal := tactic=="herb"
 	var spell := tactic=="spell"
+	var technique: Dictionary = HERO_MOVES[data.hero_style] if spell and data.hero_style>=0 else {}
 	var is_expedition: bool = battle.get("expedition",false)
 	var spirit := expedition_spirit() if tactic=="spirit" else -1
 	var signature := boss_signature_queued()
@@ -386,9 +450,16 @@ func strike(tactic: String) -> void:
 	var relic: int = battle.get("relic",-1)
 	battle.relic_note=""
 	battle.action = tactic
-	battle.interrupt = (spell or spirit==1) and move[2] in ["heavy","ward"]
+	battle.interrupt = (spell or spirit==1) and (move[2] in ["heavy","ward"] or technique.get("interrupt",false))
 	battle.healed = 0
 	battle.hit = spell_damage() if spell else (hit_preview() if tactic=="attack" else 0)
+	if tactic=="attack":
+		battle.erase("hero_mark")
+	if spell:
+		battle.healed=mini(int(technique.get("heal",0)),battle.maxhp-battle.hp)
+		battle.hp+=battle.healed
+		battle.hero_ward=maxi(int(battle.get("hero_ward",0)),int(technique.get("guard",0)))
+		battle.hero_mark=int(technique.get("mark",0))
 	if spell and flame_relic_ready(move):
 		battle.relic_spent=true
 		battle.relic_note="焰纹剑穗 · 破阵伤害 +12"
@@ -396,7 +467,7 @@ func strike(tactic: String) -> void:
 		battle.frost=0
 	if signature:
 		battle.signature_used=true
-	var focus_gain := {"attack":1,"guard":2,"spell":-3}.get(tactic,0) as int
+	var focus_gain := int({"attack":1,"guard":2,"spell":-3}.get(tactic,0))+int(technique.get("focus",0))
 	if heal and relic==Expedition.Relic.MIRROR:
 		focus_gain=mini(2,3-battle.focus)
 		if focus_gain>0:
@@ -449,6 +520,9 @@ func strike(tactic: String) -> void:
 	elif spirit==3:
 		damage=maxi(0,damage-14)
 	battle.taken = 0 if battle.interrupt or spirit==0 else maxi(0,damage-int(battle.get("guard",0)))
+	if battle.taken>0 and battle.get("hero_ward",0)>0:
+		battle.taken=maxi(0,battle.taken-int(battle.hero_ward))
+		battle.hero_ward=0
 	if relic==Expedition.Relic.TIDE and move[2]=="heavy" and not guard and battle.taken>0 and not battle.get("relic_spent",false):
 		var absorbed: int = mini(14,int(battle.taken))
 		battle.taken-=absorbed
@@ -462,7 +536,7 @@ func strike(tactic: String) -> void:
 	if spirit>=0:
 		battle.note = "%s · 造成 %d · 恢复 %d · 承伤 %d。" % [Expedition.PET_MOVES[spirit][0],battle.hit,battle.healed,battle.taken]
 	elif battle.interrupt:
-		battle.note = "破阵诀打断%s，造成 %d 伤害。" % [move[0],battle.hit]
+		battle.note = "%s打断%s，造成 %d 伤害。" % [technique.get("name","破阵诀"),move[0],battle.hit]
 		if imprint_triggered:
 			battle.note+=" 破势铭返还 1 点剑意。"
 	elif guard:
@@ -471,6 +545,8 @@ func strike(tactic: String) -> void:
 		battle.note = "气血恢复 %d，承受 %d 点反击。" % [battle.healed,battle.taken]
 	else:
 		battle.note = "造成 %d 伤害，承受 %d 点反击。" % [battle.hit,battle.taken]
+	if spell and battle.healed>0:
+		battle.note+=" 恢复 %d 气血。" % battle.healed
 	if warded>0:
 		battle.note+=" 镇煞符减伤 %d。" % warded
 	if signature and not battle.interrupt and spirit!=0 and warded==0:
@@ -571,13 +647,21 @@ func can_brew_remedy(id: int) -> bool:
 	if id<0 or id>=Expedition.REMEDIES.size():
 		return false
 	var recipe: Dictionary = Expedition.REMEDIES[id]
-	return data.herbs>=recipe.herbs and data.stones>=recipe.stones
+	return data.herbs>=remedy_herb_cost(id) and data.stones>=recipe.stones
+
+func pill_fire_available() -> bool:
+	return active_lesson("alchemy",Lesson.PILL_FIRE) and data.pill_fire_used_day!=data.day
+
+func remedy_herb_cost(id: int) -> int:
+	return int(Expedition.REMEDIES[id].herbs)-int(pill_fire_available())
 
 func brew_remedy(id: int) -> bool:
 	if not can_brew_remedy(id):
 		return false
 	var recipe: Dictionary = Expedition.REMEDIES[id]
-	data.herbs-=recipe.herbs
+	data.herbs-=remedy_herb_cost(id)
+	if pill_fire_available():
+		data.pill_fire_used_day=data.day
 	data.stones-=recipe.stones
 	data.remedies[id]+=1
 	record("丹房","炼成一份%s。" % recipe.name,false)
@@ -629,6 +713,7 @@ func start_expedition(guide: int,pet: int,packed: int,tier: int,commission := ""
 		"area":data.map,"rank":data.rank,"serial":data.expedition_serial,"step":0,"tier":tier,"history":[],
 		"hp":cap,"maxhp":cap,"herbs":packed+int(group==2),"coins":0,"dust":0,"combat":{},
 		"courier_dust":0,
+		"courier_discount":courier_discount_on_departure(),
 		"guide":data.people[guide] if guide>=0 else "独行","pet":data.pets[pet] if pet>=0 else "无随行灵兽",
 		"itinerary":forecast.steps,"route_name":forecast.name,"commission":commission,
 		"surveyed":use_scout,
@@ -808,6 +893,12 @@ func at_courier_stop() -> bool:
 	var run: Dictionary = data.expedition
 	return not run.is_empty() and run.step==Expedition.COURIER_STOP and run.combat.is_empty()
 
+func courier_discount_on_departure() -> int:
+	return Expedition.COURIER_FEE>>1 if active_lesson("scout",Lesson.SEEK_LANTERN) else 0
+
+func courier_fee() -> int:
+	return Expedition.COURIER_FEE-int(data.expedition.get("courier_discount",0))
+
 func courier_block_reason(amount: int) -> String:
 	if not at_courier_stop():
 		return "走完第三段后可在归灯驿寄存。"
@@ -816,8 +907,8 @@ func courier_block_reason(amount: int) -> String:
 		return "本趟已经寄出一批灯砂。"
 	if amount<1 or amount>Expedition.COURIER_LIMIT:
 		return "本次可寄 1 至 %d 份灯砂。" % Expedition.COURIER_LIMIT
-	if run.coins<Expedition.COURIER_FEE:
-		return "本轮战利品须有 %d 灵石作驿费。" % Expedition.COURIER_FEE
+	if run.coins<courier_fee():
+		return "本轮战利品须有 %d 灵石作驿费。" % courier_fee()
 	if run.dust<amount:
 		return "随身战利品没有足够的灯砂。"
 	return ""
@@ -826,10 +917,11 @@ func dispatch_courier(amount: int) -> bool:
 	if not courier_block_reason(amount).is_empty():
 		return false
 	var run: Dictionary = data.expedition
-	run.coins-=Expedition.COURIER_FEE
+	var fee := courier_fee()
+	run.coins-=fee
 	run.dust-=amount
 	run.courier_dust=amount
-	record("远征","交付 %d 灵石驿费，寄出 %d 灯砂。本趟结束时入账。" % [Expedition.COURIER_FEE,amount],false)
+	record("远征","交付 %d 灵石驿费，寄出 %d 灯砂。本趟结束时入账。" % [fee,amount],false)
 	return true
 
 func extract_expedition() -> bool:
@@ -859,6 +951,11 @@ func expedition_commission_progress(run: Dictionary) -> String:
 		"trace": return "已找到遗迹，可破关或撤回。" if Expedition.trace_site(run.itinerary) in visited else "沿途寻找委托指定的遗迹。"
 	return ""
 
+func expedition_page_reward(result: String) -> int:
+	if result=="破关":
+		return 2
+	return int(result=="撤回" and int(data.expedition.get("step",0))>=Expedition.COURIER_STOP)
+
 func finish_expedition(result: String) -> void:
 	var run: Dictionary = data.expedition
 	var survived := result!="败退"
@@ -873,6 +970,7 @@ func finish_expedition(result: String) -> void:
 	var sealed: int = run.get("sealed_dust",0)
 	var sealed_paid := sealed if result=="破关" else 0
 	var courier: int = run.get("courier_dust",0)
+	var pages := expedition_page_reward(result)
 	coins+=bonus_coins
 	grains+=bonus_dust+sealed_paid+courier
 	if completed:
@@ -886,6 +984,7 @@ func finish_expedition(result: String) -> void:
 	data.dust+=grains
 	data.herbs+=herbs
 	data.qi+=experience
+	data.lesson_pages+=pages
 	var returned: int = run.get("remedy",-1) if survived and not run.get("remedy_used",false) else -1
 	if returned>=0:
 		data.remedies[returned]+=1
@@ -895,6 +994,7 @@ func finish_expedition(result: String) -> void:
 	data.expedition_last.remedy_returned=returned
 	data.expedition_last.merge({"sealed_dust":sealed,"sealed_paid":sealed_paid})
 	data.expedition_last.courier_dust=courier
+	data.expedition_last.lesson_pages=pages
 	data.expedition_last.imprint_healed=run.get("imprint_healed",0)
 	data.expedition={}
 	var note := "远征%s，入账 %d 灵石、%d 灯砂。" % [result,coins,grains]

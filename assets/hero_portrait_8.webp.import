@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b26ue11n1w1jc"
-path="res://.godot/imported/hero_action_1.webp-bff0191feb572e8a834e2019af1dc2de.ctex"
+uid="uid://dyg8v31fe1188"
+path="res://.godot/imported/hero_portrait_8.webp-5905c9af8da492d14dd7ca7749b99b13.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/hero_action_1.webp"
-dest_files=["res://.godot/imported/hero_action_1.webp-bff0191feb572e8a834e2019af1dc2de.ctex"]
+source_file="res://assets/hero_portrait_8.webp"
+dest_files=["res://.godot/imported/hero_portrait_8.webp-5905c9af8da492d14dd7ca7749b99b13.ctex"]
 
 [params]
 
