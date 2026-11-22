@@ -2,6 +2,10 @@
 
 《龙谷拾玉》是原创国风修仙游戏。玩家经营四季山门、推进主线，单人进入遗灯秘境。洛神和应龙开局可选。悟空、烛九阴、青龙、鸿钧、嫦娥、精卫、麒麟随宗门和远征进度解锁。选角页显示各自的解锁条件与招式。
 
+## Windows 试玩
+
+从发行版下载 Windows x64 可执行文件，双击运行。[下载最新版](https://github.com/wudi-123-hub/jade-valley/releases/latest) · [历史版本和实机素材](https://github.com/wudi-123-hub/jade-valley/releases)
+
 ## 本地运行
 
 用 Godot 4.6.1 导入 `project.godot`，按 F5 运行。把 Windows 导出模板安装到编辑器后，可用项目自带的 `Windows Desktop` 预设打包。
