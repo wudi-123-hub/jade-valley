@@ -985,8 +985,8 @@ func battle_window() -> void:
 	var foe_name: String = Chronicle.CHAPTERS[b.story].foe if plot_fight else State.FOES[b.map]
 	var title := "守灵战" if plot_fight else "山野斗法"
 	if expedition_fight:
-		foe_name=Expedition.BOSSES[b.map] if b.expedition_node=="boss" else {"elite":"披甲巡灯兽","ambush":"伏灯山灵","trail":"巡灯兽"}[b.expedition_node]
-		title="遗灯之门" if b.expedition_node=="boss" else "秘境遭遇"
+		foe_name=Expedition.BOSSES[b.map] if b.expedition_node=="boss" else Expedition.FOES[b.expedition_node]
+		title="遗灯之门" if b.expedition_node=="boss" else ("封灯试炼" if b.expedition_node=="seal" else "秘境遭遇")
 	var host := window(title,"%s · %s" % [State.MAPS[b.map][1],foe_name],"sword",Vector2(1124,744))
 	var arena := Control.new()
 	arena.clip_contents = true
@@ -1007,6 +1007,8 @@ func battle_window() -> void:
 	var guardian_path := "res://assets/guardian%d.webp" % b.map
 	if expedition_fight and b.expedition_node=="boss" and ResourceLoader.exists(guardian_path):
 		enemy_art=load(guardian_path)
+	elif expedition_fight and b.expedition_node=="seal" and ResourceLoader.exists("res://assets/duel_seal_mastiff.webp"):
+		enemy_art=load("res://assets/duel_seal_mastiff.webp")
 	var foe := ui.picture(arena,enemy_art,Rect2(683,126,285,246))
 	if b.result>0:
 		foe.modulate = Color(.62,.70,.65)
@@ -1225,12 +1227,14 @@ func expedition_plan_window() -> void:
 		var x: int = 14+index*210
 		ui.label(board,"%d  %s" % [index+1,Expedition.KINDS[index]],Rect2(x,16,197,33),17,UI.GOLD,true,true)
 		for lane in forecast.steps[index].size():
-			var node: Array = Expedition.OPTIONS[forecast.steps[index][lane]]
+			var id: String = forecast.steps[index][lane]
+			var node: Array = Expedition.OPTIONS[id]
 			var y: int = 59+lane*53
-			var tile := ui.box(board,Rect2(x,y,197,48),UI.WELL,UI.JADE if forecast.steps[index][lane]=="survey" else UI.BORDER,7)
+			var edge := UI.OCHRE if id=="seal" else (UI.JADE if id=="survey" else UI.BORDER)
+			var tile := ui.box(board,Rect2(x,y,197,48),UI.WELL,edge,7)
 			tile.mouse_filter=Control.MOUSE_FILTER_PASS
-			tile.tooltip_text=node[2]
-			ui.mark(board,node[3],Rect2(x+11,y+14,24,24),UI.JADE)
+			tile.tooltip_text=seal_brief(draft_tier) if id=="seal" else node[2]
+			ui.mark(board,node[3],Rect2(x+11,y+14,24,24),UI.OCHRE if id=="seal" else UI.JADE)
 			ui.label(board,node[0],Rect2(x+46,y,141,48),16,UI.PAPER)
 	ui.label(host,"随行委托",Rect2(27,357,1066,36),19,UI.GOLD,false,true)
 	for index in forecast.offers.size():
@@ -1261,6 +1265,9 @@ func prep_selector(host: Node,index: int,title: String,value: String,description
 func expedition_art() -> Texture2D:
 	var path := "res://assets/lantern-depths.webp"
 	return load(path) if ResourceLoader.exists(path) else atlas.maps[game.data.map]
+
+func seal_brief(tier: int) -> String:
+	return "花费战利品中的 %d 灯砂挑战封灯獒。取胜后守关战伤害 +%d，击破灯门可领取封存的 %d 灯砂。" % [Expedition.SEAL_ENTRY,Expedition.SEAL_BOOST,Expedition.seal_reward(tier)]
 
 func route_points(board: Node,point_a: Vector2,point_b: Vector2,tint: Color,emphasis: bool) -> void:
 	var road := Line2D.new()
@@ -1314,7 +1321,8 @@ func expedition_route() -> void:
 			var visited: bool = depth<route.history.size() and route.history[depth]==id
 			var chosen: bool = route_choice==id and active
 			var label_color := UI.INK if chosen else (UI.JADE if visited else UI.PAPER)
-			var coin := ui.button(veil,"",Rect2(here-Vector2(81,39),Vector2(162,78)),func(): route_choice=id;open_scene("expedition",true),UI.JADE,chosen,12,active)
+			var accent := UI.OCHRE if id=="seal" else UI.JADE
+			var coin := ui.button(veil,"",Rect2(here-Vector2(81,39),Vector2(162,78)),func(): route_choice=id;open_scene("expedition",true),accent,chosen,12,active)
 			coin.tooltip_text=scene[2]
 			ui.mark(coin,"check" if visited and not active else scene[3],Rect2(66,8,30,28),UI.INK if chosen else UI.GOLD)
 			ui.label(coin,scene[0],Rect2(6,36,150,30),15,label_color,true,true)
@@ -1330,14 +1338,17 @@ func expedition_route() -> void:
 	var selected: Array = Expedition.OPTIONS.get(route_choice,[])
 	var detail := "战斗进度已存档，可以接着打。"
 	if not pending and not selected.is_empty():
-		detail="%s · %s" % [selected[1],selected[2]]
+		detail=seal_brief(route.tier) if route_choice=="seal" else "%s · %s" % [selected[1],selected[2]]
 		if not game.expedition_can_take(route_choice):
 			detail += "  " + game.expedition_block_reason(route_choice)
 	ui.label(host,detail,Rect2(28,554,1094,44),17,UI.PAPER,false,false,true)
 	var commission_id: String = route.get("commission","")
+	var sealed: int = route.get("sealed_dust",0)
 	if not commission_id.is_empty():
 		var offer: Array = Expedition.COMMISSIONS[commission_id]
-		ui.label(host,"委托 %s  ·  %s" % [offer[0],game.expedition_commission_progress(route)],Rect2(29,601,1093,30),15,UI.GOLD)
+		ui.label(host,"委托 %s  ·  %s" % [offer[0],game.expedition_commission_progress(route)],Rect2(29,601,688,30),15,UI.GOLD)
+	if sealed>0:
+		ui.label(host,"封存 %d 灯砂 · 破关领取" % sealed,Rect2(777,601,355,30),15,UI.OCHRE,true)
 	ui.button(host,"带上战利品撤回",Rect2(27,643,316,52),func(): open_scene("extraction"),UI.JADE,false,10,route.step>0 and not pending)
 	if pending:
 		ui.button(host,"继续战斗",Rect2(790,643,344,52),func():
@@ -1363,8 +1374,14 @@ func extraction_window() -> void:
 	var bonus_coins: int = offer[2] if fulfilled else 0
 	var bonus_dust: int = offer[3] if fulfilled else 0
 	ui.label(host,"本次可带回 %d 灵石和 %d 灯砂。" % [run.coins+bonus_coins,run.dust+bonus_dust],Rect2(31,121,568,35),18,UI.PAPER,true)
+	var details: Array[String] = []
 	if not String(run.get("commission","")).is_empty():
-		ui.label(host,"已包含委托赏金。" if fulfilled else "撤回将结束本轮委托。",Rect2(30,157,570,28),14,UI.GOLD,true)
+		details.append("已包含委托赏金" if fulfilled else "本轮委托结束")
+	var sealed: int = run.get("sealed_dust",0)
+	if sealed>0:
+		details.append("放弃封存的 %d 灯砂" % sealed)
+	if not details.is_empty():
+		ui.label(host,"    ·    ".join(details),Rect2(30,157,570,28),14,UI.GOLD,true)
 	ui.button(host,"继续深入",Rect2(28,191,278,53),func():open_scene("expedition"),UI.JADE)
 	ui.button(host,"确认撤回",Rect2(320,191,281,53),func():
 		if game.extract_expedition():
@@ -1399,8 +1416,14 @@ func expedition_result_window() -> void:
 		ui.button(host,"宗门营造",Rect2(28,402,365,54),func():open_scene("facilities"),UI.OCHRE,true)
 		ui.button(host,"返回山门",Rect2(407,402,372,54),close_scene,UI.JADE)
 	var returned: int = result.get("remedy_returned",-1)
+	var details: Array[String] = []
 	if returned>=0:
-		ui.label(host,"未用药剂已退回 · "+Expedition.REMEDIES[returned].name,Rect2(28,486,751,44),16,UI.JADE,true)
+		details.append(Expedition.REMEDIES[returned].name+"已退回")
+	var sealed: int = result.get("sealed_dust",0)
+	if sealed>0:
+		details.append("封灯奖励 +%d 灯砂" % result.sealed_paid if result.sealed_paid>0 else "已放弃封存的 %d 灯砂" % sealed)
+	if not details.is_empty():
+		ui.label(host,"    ·    ".join(details),Rect2(28,486,751,44),16,UI.JADE,true)
 
 func facilities_window() -> void:
 	var host := window("宗门营造","当前持有 %d 灵石 · %d 灯砂" % [game.data.stones,game.data.dust],"hall",Vector2(915,620))
@@ -1490,7 +1513,7 @@ func action_result(practice: bool,won: bool) -> void:
 		message="齐天大圣已解锁，可在选择掌门中使用。"
 	if not practice:
 		message=game.battle.note
-	ui.label(panel,message,Rect2(23,78,482,42),17,UI.MUTE,true)
+	ui.label(panel,message,Rect2(23,75,482,59),17,UI.MUTE,true,false,true)
 	if practice:
 		ui.button(panel,"挑战古甲" if won and not practice_boss else "再试一次",Rect2(38,147,218,49),func():
 			practice_boss=practice_boss or won
@@ -1658,9 +1681,51 @@ func smoke_test() -> void:
 	print("HERO_SELECTION_SMOKE_", "PASS" if heroes else "FAIL")
 	var remedies := smoke_remedies()
 	print("REMEDY_SMOKE_", "PASS" if remedies else "FAIL")
+	var seal := smoke_seal_trial(0,"破关") and smoke_seal_trial(1,"撤回") and smoke_seal_trial(0,"败退")
+	print("SEAL_TRIAL_SMOKE_", "PASS" if seal else "FAIL")
 	music.free()
 	sfx.free()
-	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies else 1)
+	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes and remedies and seal else 1)
+
+func smoke_seal_trial(tier: int,settlement: String) -> bool:
+	game=State.new()
+	game.transient=true
+	game.data.dust=11
+	game.data.expedition_wins[0]=tier
+	if not game.start_expedition(-1,-1,0,tier) or not game.expedition_take("pool") or not game.expedition_take("rest") or not game.expedition_take("bridge"):
+		return false
+	var run: Dictionary = game.data.expedition
+	run.dust=1
+	if "seal" not in game.expedition_choices() or game.expedition_take("seal") or run.history.size()!=3:
+		return false
+	run.dust=2
+	if not game.expedition_take("seal") or game.battle.expedition_node!="seal":
+		return false
+	if run.dust!=0 or game.data.dust!=11 or game.expedition_take("seal") or game.extract_expedition():
+		return false
+	game.leave_battle()
+	if not game.resume_expedition_battle() or game.next_move()[2]!="heavy" or run.dust!=0:
+		return false
+	if settlement=="败退":
+		game.battle.hp=1
+		game.strike("attack")
+		return game.data.expedition_last.result==settlement and game.data.expedition_last.sealed_paid==0 and game.data.dust==11
+	if not training_test():
+		return false
+	var sealed := Expedition.seal_reward(tier)
+	if run.step!=4 or run.sealed_dust!=sealed or run.boost!=Expedition.SEAL_BOOST or run.dust!=0:
+		return false
+	if settlement=="撤回":
+		return game.extract_expedition() and game.data.expedition_last.sealed_dust==sealed and game.data.expedition_last.sealed_paid==0 and game.data.dust==11
+	if not game.expedition_take("boss") or game.battle.slash!=Expedition.SEAL_BOOST or game.battle.spell!=Expedition.SEAL_BOOST or not training_test():
+		return false
+	var wallet: int = 11+Expedition.ENCOUNTERS.boss[3]+sealed
+	if game.data.expedition_last.sealed_paid!=sealed or game.data.dust!=wallet:
+		return false
+	var cost: Array = game.facility_cost("observatory")
+	if not game.upgrade_facility("observatory") or game.data.dust!=wallet-cost[1]:
+		return false
+	return game.start_expedition(-1,-1,0,0) and game.expedition_take("trail") and game.battle.focus==1
 
 func smoke_remedies() -> bool:
 	game=State.new()

@@ -21,6 +21,7 @@ const COMMANDS := {KEY_SPACE:"jump",KEY_W:"jump",KEY_UP:"jump",KEY_J:"slash",KEY
 
 var stats: Dictionary
 var boss: bool
+var seal_trial: bool
 var practice: bool
 var spirit: int
 var charges: int
@@ -85,6 +86,7 @@ func setup(values: Dictionary, herbs_count: int, spirit_id: int, spirit_charges:
 	technique=State.HERO_TECHNIQUES[identity]
 	technique_color=[Color("91e9ff"),Color("a6e4ab"),Color("ffca7b")][identity]
 	boss=stats.expedition_node=="boss"
+	seal_trial=stats.expedition_node=="seal"
 	ledges=CLOUD_LEDGES if boss else LEDGES
 	practice=tutorial
 	herbs=herbs_count
@@ -115,7 +117,7 @@ func setup(values: Dictionary, herbs_count: int, spirit_id: int, spirit_charges:
 	move_index=snapshot.get("move_index",0)
 	stats.relic_spent=stats.get("relic_spent",false)
 	hero_art=load_art("hero_action_%d" % identity,"duel_hero")
-	enemy_art=load_art("duel_guardian" if boss else "duel_beast","guardian0" if boss else "foe0")
+	enemy_art=load_art("duel_guardian" if boss else ("duel_seal_mastiff" if seal_trial else "duel_beast"),"guardian0" if boss else "duel_beast")
 	scenery=load_art("duel_canyon","lantern-depths")
 	if boss and ResourceLoader.exists("res://assets/duel_depths.webp"):
 		scenery=load("res://assets/duel_depths.webp")
@@ -147,10 +149,11 @@ func _ready() -> void:
 	mist_light.fill_from=Vector2(.5,.5)
 	mist_light.fill_to=Vector2(1,.5)
 	mist_light.gradient=light
-	ui.label(self,"青龙谷  /  悬云观" if boss else "青龙谷  /  断灯栈道",Rect2(77,29,468,42),24,UI.PAPER,false,true)
+	var site := "悬云观" if boss else ("封灯台" if seal_trial else "断灯栈道")
+	ui.label(self,"青龙谷  /  "+site,Rect2(77,29,468,42),24,UI.PAPER,false,true)
 	ui.label(self,"横版试炼" if practice else "遗灯秘境",Rect2(76,72,400,28),15,GOLD)
 	ui.label(self,player_name,Rect2(95,103,340,35),23,UI.PAPER,false,true)
-	var name_text := "沉潭古甲" if boss else {"trail":"巡灯兽","elite":"披甲巡灯兽","ambush":"伏灯山灵"}.get(stats.expedition_node,"巡灯兽") as String
+	var name_text: String = Expedition.BOSSES[0] if boss else Expedition.FOES[stats.expedition_node]
 	ui.label(self,name_text,Rect2(968,103,377,35),23,UI.PAPER,true,true)
 	hp_label=ui.label(self,"",Rect2(95,153,300,26),16,JADE)
 	foe_label=ui.label(self,"",Rect2(1160,153,170,26),16,GOLD,true)
@@ -300,7 +303,8 @@ func land(height: float) -> void:
 	dash_used=false
 
 func enemy_box() -> Rect2:
-	return Rect2(enemy-Vector2(101,114),Vector2(202,114)) if boss else Rect2(enemy-Vector2(59,73),Vector2(118,73))
+	var body := Vector2(202,114) if boss else (Vector2(155,91) if seal_trial else Vector2(118,73))
+	return Rect2(enemy-Vector2(body.x*.5,body.y),body)
 
 func strike(down: bool) -> void:
 	var diving := down and not on_ground
@@ -417,12 +421,17 @@ func update_enemy(dt: float) -> void:
 			if distance>200:
 				enemy.x+=enemy_face*(125 if boss else 177)*dt
 			if phase_time<=0:
-				move=["rush","wave","slam"][move_index%3] if boss else "rush"
+				if boss:
+					move=["rush","wave","slam"][move_index%3]
+				elif seal_trial:
+					move=["wave","rush"][move_index%2]
+				else:
+					move="rush"
 				move_index+=1
 				move_hit=false
 				wave=0
 				slam_x=player.x
-				set_phase("tell",.67 if enraged else (.89 if boss else .63))
+				set_phase("tell",.67 if enraged else (.89 if boss or seal_trial else .63))
 		"tell":
 			if phase_time<=0:
 				set_phase("attack",{"rush":.50,"wave":.88,"slam":.48}[move])
@@ -443,11 +452,11 @@ func attack_enemy(dt: float, enraged: bool) -> void:
 		"rush":
 			enemy.x=clampf(enemy.x+enemy_face*(780 if enraged else (660 if boss else 738))*dt,LEFT+37,RIGHT-37)
 			hit=absf(enemy.x-player.x)<(126.0 if boss else 83.0) and player.y>FLOOR-(105.0 if boss else 68.0)
-			force=(23 if boss else 15)+level+(5 if stats.expedition_node=="elite" else 0)
+			force=(23 if boss or seal_trial else 15)+level+(5 if stats.expedition_node=="elite" else 0)
 		"wave":
 			wave+=dt*(755 if enraged else 660)
 			hit=absf(absf(player.x-enemy.x)-wave)<48 and player.y>FLOOR-48
-			force=25+level
+			force=(22 if seal_trial else 25)+level
 		"slam":
 			if phase_time<=.23:
 				enemy.x=clampf(slam_x,LEFT+37,RIGHT-37)
@@ -567,7 +576,7 @@ func _draw() -> void:
 	painted_sprite(hero_art,player+Vector2(0,2),145.0+(sin(clock*19)*3 if motion and on_ground and absf(velocity.x)>20 else 0),face,hero_tint)
 	var rise := -maxf(0,sin(PI*phase_time/phase_span))*93 if phase=="attack" and move=="slam" and phase_time>.23 else 0.0
 	var enemy_tint := Color(1,.82,.65) if phase=="tell" else (Color(.89,1,.87) if phase=="open" else Color.WHITE)
-	painted_sprite(enemy_art,enemy+Vector2(0,3+rise),235 if boss else 107,enemy_face,enemy_tint)
+	painted_sprite(enemy_art,enemy+Vector2(0,3+rise),235 if boss else (139 if seal_trial else 107),enemy_face,enemy_tint)
 	if slash_time>0:
 		var pivot := player+Vector2(0,-47 if slash_angle!=PI*.5 else -24)
 		var arc_color := JADE if stats.focus==0 else Color("e4ffbb")

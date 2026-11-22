@@ -324,7 +324,7 @@ func next_move() -> Array:
 		return Expedition.BOSS_SIGNATURES[battle.map]
 	var moves: Array = Expedition.MOVES[battle.map] if battle.get("expedition",false) else Chronicle.MOVES[battle.map]
 	var offset := 0
-	if battle.get("expedition_node","")=="ambush":
+	if battle.get("expedition_node","") in ["ambush","seal"]:
 		for i in moves.size():
 			if moves[i][2]=="heavy":
 				offset=i
@@ -633,6 +633,8 @@ func expedition_block_reason(option: String) -> String:
 		return "本轮战利品须有 8 灵石。"
 	if option=="medicine_cache" and run.dust<1:
 		return "本轮战利品须有 1 灯砂。"
+	if option=="seal" and run.dust<Expedition.SEAL_ENTRY:
+		return "本轮战利品须有 %d 灯砂。" % Expedition.SEAL_ENTRY
 	return ""
 
 func expedition_take(option: String) -> bool:
@@ -641,7 +643,9 @@ func expedition_take(option: String) -> bool:
 	var run: Dictionary = data.expedition
 	run.history.append(option)
 	match option:
-		"trail","ambush","elite","boss":
+		"trail","ambush","elite","seal","boss":
+			if option=="seal":
+				run.dust-=Expedition.SEAL_ENTRY
 			start_expedition_battle(option)
 			return true
 		"pool":
@@ -741,7 +745,7 @@ func resolve_expedition_fight(won: bool) -> void:
 	var node: String = battle.expedition_node
 	var encounter: Array = Expedition.ENCOUNTERS[node]
 	var coins: int = encounter[2]+int(run.area)*6+int(run.tier)*12
-	var grains: int = encounter[3]+int(run.tier)*2
+	var grains: int = 0 if node=="seal" else encounter[3]+int(run.tier)*2
 	run.coins+=coins
 	run.dust+=grains
 	run.step+=1
@@ -749,6 +753,10 @@ func resolve_expedition_fight(won: bool) -> void:
 	if node=="ambush":
 		run.herbs+=1
 		battle.note+=" 找到 1 株灵草。"
+	if node=="seal":
+		run.boost+=Expedition.SEAL_BOOST
+		run.sealed_dust=Expedition.seal_reward(run.tier)
+		battle.note="封灯试炼告捷 · 伤害 +%d · 封存 %d 灯砂 · 缴获 %d 灵石。" % [Expedition.SEAL_BOOST,run.sealed_dust,coins]
 	if node=="boss":
 		finish_expedition("破关")
 	else:
@@ -792,8 +800,10 @@ func finish_expedition(result: String) -> void:
 	var completed := expedition_commission_met(run,result)
 	var bonus_coins: int = Expedition.COMMISSIONS[commission][2] if completed else 0
 	var bonus_dust: int = Expedition.COMMISSIONS[commission][3] if completed else 0
+	var sealed: int = run.get("sealed_dust",0)
+	var sealed_paid := sealed if result=="破关" else 0
 	coins+=bonus_coins
-	grains+=bonus_dust
+	grains+=bonus_dust+sealed_paid
 	if completed:
 		data.expedition_commissions+=1
 	var new_relic := -1
@@ -812,6 +822,7 @@ func finish_expedition(result: String) -> void:
 	data.expedition_last.merge({"commission":commission,"commission_done":completed,"bonus_coins":bonus_coins,"bonus_dust":bonus_dust})
 	data.expedition_last.relic_unlocked=new_relic
 	data.expedition_last.remedy_returned=returned
+	data.expedition_last.merge({"sealed_dust":sealed,"sealed_paid":sealed_paid})
 	data.expedition={}
 	var note := "远征%s，入账 %d 灵石、%d 灯砂。" % [result,coins,grains]
 	if new_relic>=0:

@@ -110,6 +110,9 @@ func _ready() -> void:
 	if not await play_action_duel():
 		get_tree().quit(17)
 		return
+	if not await play_seal_trial():
+		get_tree().quit(22)
+		return
 	game.data.rank=3
 	game.migrate(1)
 	await capture("summer")
@@ -484,6 +487,83 @@ func play_action_duel() -> bool:
 	print("REMEDIES_WINDOWED_PASS")
 	print("ACTION_DUEL_WINDOWED_PASS")
 	return true
+
+func play_seal_trial() -> bool:
+	open_expedition()
+	find_text_button(modal,"启程入境").pressed.emit()
+	choose_node("pool")
+	choose_node("rest")
+	choose_node("bridge")
+	for child: Button in modal.find_children("*","Button",true,false):
+		if child.tooltip_text==Expedition.OPTIONS.seal[2]:
+			child.pressed.emit()
+			break
+	await capture("seal-route")
+	find_text_button(modal,"踏入封灯试炼").pressed.emit()
+	if game.battle.expedition_node!="seal" or game.data.expedition.dust!=0 or duel.enemy_art.resource_path!="res://assets/duel_seal_mastiff.webp":
+		return false
+	var checkpoint := State.new()
+	checkpoint.save_prefix=OS.get_environment("JADE_QA_OUT")+"/seal-checkpoint"
+	checkpoint.read_save()
+	var sequence: int = checkpoint.data.seq
+	checkpoint.data=game.data.duplicate(true)
+	checkpoint.data.seq=sequence
+	checkpoint.save_game()
+	var resumed := State.new()
+	resumed.save_prefix=checkpoint.save_prefix
+	if not resumed.read_save() or not resumed.resume_expedition_battle() or resumed.battle.expedition_node!="seal" or resumed.data.expedition.dust!=0 or resumed.expedition_take("seal"):
+		return false
+	duel.player.x=duel.enemy.x-222
+	duel.set_phase("wait",.01)
+	await physics_frames(4)
+	if duel.move!="wave" or duel.phase!="tell":
+		return false
+	await capture("seal-mastiff",.12)
+	var health: int = game.battle.hp
+	for i in 54:
+		if duel.phase_time<=.10:
+			break
+		await physics_frames(1)
+	send_key(KEY_SPACE,true)
+	await physics_frames(2)
+	send_key(KEY_SPACE,false)
+	await physics_frames(33)
+	if game.battle.hp!=health or duel.move_hit or duel.wave<=222:
+		printerr("Seal trial jump failed to avoid a passing shockwave. HP ",game.battle.hp," wave ",duel.wave," y ",duel.player.y)
+		return false
+	if not await win_seal_action():
+		return false
+	if game.data.expedition.sealed_dust!=Expedition.seal_reward(0) or game.data.expedition.dust!=0:
+		return false
+	find_text_button(modal,"继续远征").pressed.emit()
+	find_text_button(modal,"带上战利品撤回").pressed.emit()
+	await capture("seal-retreat")
+	find_text_button(modal,"继续深入").pressed.emit()
+	choose_node("boss")
+	if game.battle.slash!=Expedition.SEAL_BOOST+game.data.facilities.sword_hall*4:
+		return false
+	if not await win_seal_action():
+		return false
+	find_text_button(modal,"查看远征结算").pressed.emit()
+	if game.data.expedition_last.sealed_paid!=Expedition.seal_reward(0) or game.data.expedition_last.dust!=10:
+		return false
+	await capture("seal-result")
+	close_scene()
+	print("SEAL_TRIAL_WINDOWED_PASS")
+	return true
+
+func win_seal_action() -> bool:
+	duel.player=Vector2(duel.enemy.x-105,duel.FLOOR)
+	duel.set_phase("open",8.0)
+	for i in 6:
+		send_key(KEY_J,true)
+		await physics_frames(2)
+		send_key(KEY_J,false)
+		await physics_frames(26)
+		if game.battle.result!=0:
+			break
+	await get_tree().create_timer(.55).timeout
+	return game.battle.result==1
 
 func find_text_button(container: Node,target: String) -> Button:
 	for child: Button in container.find_children("*","Button",true,false):

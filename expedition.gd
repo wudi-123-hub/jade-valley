@@ -1,6 +1,8 @@
 extends RefCounted
 
 const DEPTH = 5
+const SEAL_ENTRY = 2
+const SEAL_BOOST = 9
 const SEQUENCES = [["trail","pool"],["relay","rest"],["elite","bridge"],["camp","shrine"],["boss"]]
 const ROUTES = [
 	["旧灯驿道",[["trail","pool"],["relay","rest"],["elite","bridge"],["camp","shrine"],["boss"]]],
@@ -25,10 +27,11 @@ const OPTIONS = {
 	"beacon":["悬崖孤灯","祝福","损失 12 气血，得到 1 灯砂，余下战斗的御剑与破阵伤害各 +7。","flame"],
 	"medicine_cache":["行医石龛","补给","消耗 1 灯砂，恢复 42 气血并补充 1 株灵草。","sprout"],
 	"ambush":["拦灯伏兵","遭遇","伏兵第一招便是重击。取胜可带走灵石、灯砂和 1 株灵草。","sword"],
+	"seal":["封灯试炼","试炼","消耗灯砂挑战封灯獒。取胜可强化守关战，击破灯门才兑现封存灯砂。","flame"],
 	"boss":["遗灯之门","守关", "击败守关灵兽，带回灯砂与远征赏金。","lock"]
 }
 const ENCOUNTERS = {
-	"trail":[51,9,15,1],"ambush":[62,6,20,2],"elite":[72,5,28,3],"boss":[87,0,52,4]
+	"trail":[51,9,15,1],"ambush":[62,6,20,2],"elite":[72,5,28,3],"seal":[68,4,16,0],"boss":[87,0,52,4]
 }
 const COMMISSIONS = {
 	"hunt":["破阵请帖", "击退裂石阵守卫或拦灯伏兵，再击破遗灯之门。", 24, 4],
@@ -39,6 +42,7 @@ const COMMISSIONS = {
 const COMMISSION_PAIRS = [["hunt","herbs"],["trace","safe"],["herbs","safe"],["trace","hunt"]]
 const KINDS = ["启程","林间","险地","整备","灯门"]
 const BOSSES = ["沉潭古甲","焰翎蜃龙","霜枫镜鸮","寒阙雪狮"]
+const FOES = {"trail":"巡灯兽","elite":"披甲巡灯兽","ambush":"伏灯山灵","seal":"封灯獒"}
 enum Remedy { HEAL, FOCUS, WARD }
 const REMEDIES = [
 	{"name":"回春散","herbs":2,"stones":10,"amount":26,"hint":"立刻恢复至多 26 气血。适合少走休整点的路线。"},
@@ -96,7 +100,11 @@ static func plan(area: int,serial: int) -> Dictionary:
 	for step in itinerary.size():
 		if itinerary[step].size()==2 and (step+area+serial)%2==0:
 			itinerary[step].reverse()
+	itinerary[3].append("seal")
 	return {"name":route[0],"steps":itinerary,"offers":COMMISSION_PAIRS[index].duplicate()}
+
+static func seal_reward(tier: int) -> int:
+	return 6+tier*2
 
 static func run_step(run: Dictionary,depth: int) -> Array:
 	if run.has("itinerary"):
