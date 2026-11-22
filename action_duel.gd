@@ -2,6 +2,7 @@ extends Control
 
 const UI = preload("res://ui.gd")
 const Expedition = preload("res://expedition.gd")
+const State = preload("res://state.gd")
 
 signal finished(won: bool)
 signal changed
@@ -71,9 +72,17 @@ var hp_label: Label
 var foe_label: Label
 var help_label: Label
 var notice_label: Label
+var player_name: String
+var technique: String
+var technique_color: Color
+var burst_time := 0.0
 
-func setup(values: Dictionary, herbs_count: int, spirit_id: int, spirit_charges: int, animate: bool, tutorial: bool) -> void:
+func setup(values: Dictionary, herbs_count: int, spirit_id: int, spirit_charges: int, animate: bool, tutorial: bool, style := 0, display_name := "掌门") -> void:
 	stats=values
+	player_name=display_name
+	var identity := maxi(style,0)
+	technique=State.HERO_TECHNIQUES[identity]
+	technique_color=[Color("91e9ff"),Color("a6e4ab"),Color("ffca7b")][identity]
 	boss=stats.expedition_node=="boss"
 	ledges=CLOUD_LEDGES if boss else LEDGES
 	practice=tutorial
@@ -104,7 +113,7 @@ func setup(values: Dictionary, herbs_count: int, spirit_id: int, spirit_charges:
 	wave=snapshot.get("wave",wave)
 	move_index=snapshot.get("move_index",0)
 	stats.relic_spent=stats.get("relic_spent",false)
-	hero_art=load_art("duel_hero","dragon")
+	hero_art=load_art("hero_action_%d" % identity,"duel_hero")
 	enemy_art=load_art("duel_guardian" if boss else "duel_beast","guardian0" if boss else "foe0")
 	scenery=load_art("duel_canyon","lantern-depths")
 	if boss and ResourceLoader.exists("res://assets/duel_depths.webp"):
@@ -139,13 +148,15 @@ func _ready() -> void:
 	mist_light.gradient=light
 	ui.label(self,"青龙谷  /  悬云观" if boss else "青龙谷  /  断灯栈道",Rect2(77,29,468,42),24,UI.PAPER,false,true)
 	ui.label(self,"横版试炼" if practice else "遗灯秘境",Rect2(76,72,400,28),15,GOLD)
-	ui.label(self,"小青团",Rect2(95,103,340,35),23,UI.PAPER,false,true)
+	ui.label(self,player_name,Rect2(95,103,340,35),23,UI.PAPER,false,true)
 	var name_text := "沉潭古甲" if boss else {"trail":"巡灯兽","elite":"披甲巡灯兽","ambush":"伏灯山灵"}.get(stats.expedition_node,"巡灯兽") as String
 	ui.label(self,name_text,Rect2(968,103,377,35),23,UI.PAPER,true,true)
 	hp_label=ui.label(self,"",Rect2(95,153,300,26),16,JADE)
 	foe_label=ui.label(self,"",Rect2(1160,153,170,26),16,GOLD,true)
 	help_label=ui.label(self,"",Rect2(103,833,1234,33),16,UI.PAPER,true)
 	notice_label=ui.label(self,"",Rect2(473,223,494,47),21,GOLD,true,true)
+	notice_label.add_theme_color_override("font_outline_color",Color("152b31"))
+	notice_label.add_theme_constant_override("outline_size",5)
 	refresh_hud()
 
 func refresh_hud() -> void:
@@ -157,7 +168,7 @@ func refresh_hud() -> void:
 	var supplies := "   ·   H  灵草 ×%d" % herbs if herbs>0 else ""
 	if charges>0:
 		supplies+="   ·   Q  灵契"
-	help_label.text="A D  移动   ·   空格  跳跃   ·   J  斩击   ·   S + J  下斩   ·   K  闪避   ·   L  剑气"+supplies
+	help_label.text="A D  移动   ·   空格  跳跃   ·   J  普攻   ·   S + J  下击   ·   K  闪避   ·   L  "+technique+supplies
 
 func _notification(what: int) -> void:
 	if what==NOTIFICATION_WM_WINDOW_FOCUS_OUT:
@@ -222,6 +233,7 @@ func notice() -> String:
 func update_player(dt: float) -> void:
 	cooldown=maxf(0,cooldown-dt)
 	slash_time=maxf(0,slash_time-dt)
+	burst_time=maxf(0,burst_time-dt)
 	immune=maxf(0,immune-dt)
 	dash_cooldown=maxf(0,dash_cooldown-dt)
 	coyote=.11 if on_ground else maxf(0,coyote-dt)
@@ -305,6 +317,8 @@ func burst() -> void:
 	stats.focus=0
 	cooldown=.40
 	slash_time=.25
+	burst_time=.34
+	callout(technique)
 	slash_angle=0 if face>0 else PI
 	var delta := enemy.x-player.x
 	if delta*face>=-28 and absf(delta)<418 and FLOOR-player.y<139:
@@ -319,7 +333,7 @@ func burst() -> void:
 	else:
 		changed.emit()
 	for i in 7:
-		spark(player+Vector2(38*face,-53),JADE,Vector2(face*(420+i*55),i*19-55),.36)
+		spark(player+Vector2(38*face,-53),technique_color,Vector2(face*(420+i*55),i*19-55),.36)
 	sounded.emit("chime")
 
 func use_herb() -> void:
@@ -532,6 +546,10 @@ func _draw() -> void:
 		var arc_color := JADE if stats.focus==0 else Color("e4ffbb")
 		for i in 4:
 			draw_arc(pivot,80+i*7,slash_angle-1.01+i*.10,slash_angle+.94,26,Color(arc_color,.44-(i*.073)),8-i,true)
+	if burst_time>0:
+		var origin := player+Vector2(face*(48+183*(1-burst_time/.34)),-59)
+		for i in 3:
+			draw_arc(origin,77+i*9,slash_angle-.87,slash_angle+.79,30,Color(technique_color,burst_time/.34*(.92-.20*i)),8-i*2,true)
 	for item in effects:
 		var tint: Color = item.tint
 		tint.a=item.life/item.total

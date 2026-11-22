@@ -12,6 +12,14 @@ func _ready() -> void:
 	show_title()
 	await capture("title")
 	begin_game()
+	await capture("hero-selection")
+	if not find_text_button(modal,"击败悬云观古甲解锁").disabled or hero_portrait(0).resource_path!="res://assets/hero_portrait_0.webp" or hero_portrait(1).resource_path!="res://assets/hero_portrait_1.webp":
+		get_tree().quit(19)
+		return
+	find_text_button(modal,"选择洛神").pressed.emit()
+	if game.hero_name()!="洛神" or scene_key!="dialogue":
+		get_tree().quit(20)
+		return
 	await capture("dialogue")
 	for i in 3:
 		next_dialogue()
@@ -40,6 +48,11 @@ func _ready() -> void:
 	close_scene()
 	find_button(frame_overlay,"掌门").pressed.emit()
 	await capture("master")
+	find_text_button(modal,"更换掌门").pressed.emit()
+	find_text_button(modal,"选择应龙").pressed.emit()
+	if game.hero_name()!="应龙" or scene_key!="master":
+		get_tree().quit(21)
+		return
 	close_scene()
 	find_button(frame_overlay,"行囊").pressed.emit()
 	await capture("inventory")
@@ -109,6 +122,7 @@ func _ready() -> void:
 	original.save_prefix = isolated
 	original.read_save()
 	original.reset()
+	original.choose_hero(1)
 	original.treasure()
 	original.plant(2,0)
 	original.recruit()
@@ -116,7 +130,7 @@ func _ready() -> void:
 	original.record("山门","宗门休整一日。")
 	var restored = State.new()
 	restored.save_prefix = isolated
-	if not restored.read_save() or restored.data.day != original.data.day or restored.data.plots != original.data.plots or restored.data.stones != original.data.stones or restored.duty_member("scout",true)!=0 or restored.data.scout_days!=1:
+	if not restored.read_save() or restored.data.day != original.data.day or restored.data.plots != original.data.plots or restored.data.stones != original.data.stones or restored.duty_member("scout",true)!=0 or restored.data.scout_days!=1 or restored.hero_name()!="应龙":
 		get_tree().quit(6)
 		return
 	var old_save := FileAccess.open(isolated+"-legacy-0.save",FileAccess.WRITE)
@@ -124,7 +138,7 @@ func _ready() -> void:
 	old_save.close()
 	var migrated = State.new()
 	migrated.save_prefix = isolated+"-legacy"
-	if not migrated.read_save() or migrated.data.rank!=2 or migrated.data.story_chapter!=0 or migrated.data.stones!=421 or not migrated.relic_unlocked(0) or migrated.data.expedition_relic_preset!=-1 or not migrated.data.duty_orders.is_empty() or migrated.data.scout_token!=0:
+	if not migrated.read_save() or migrated.data.rank!=2 or migrated.data.story_chapter!=0 or migrated.data.stones!=421 or not migrated.relic_unlocked(0) or migrated.data.expedition_relic_preset!=-1 or not migrated.data.duty_orders.is_empty() or migrated.data.scout_token!=0 or migrated.data.hero_style!=-1 or not migrated.hero_unlocked(2):
 		get_tree().quit(13)
 		return
 	print("WINDOWED_RENDER_PASS")
@@ -285,7 +299,7 @@ func play_duties() -> bool:
 	await capture("disciple-duties")
 	close_scene()
 	open_expedition()
-	if draft_guide!=-1:
+	if game.guide_available(0):
 		return false
 	find_text_button(modal,"勘察札 · 可携带").pressed.emit()
 	find_text_button(modal,"看路况 · 选委托").pressed.emit()
@@ -304,6 +318,16 @@ func play_duties() -> bool:
 	find_text_button(modal,"确认撤回").pressed.emit()
 	close_scene()
 	return true
+
+func launch_prepared_expedition() -> void:
+	if action_expeditions:
+		super()
+		return
+	var guide := 0 if game.guide_available(0) else -1
+	var pet := 0 if not game.data.pets.is_empty() else -1
+	if game.start_expedition(guide,pet,draft_herbs,draft_tier,draft_commission,draft_relic,draft_scout):
+		route_choice=""
+		open_scene("expedition",true)
 
 func press_tooltip(caption: String) -> void:
 	for found: Button in modal.find_children("*","Button",true,false):
@@ -352,13 +376,34 @@ func play_action_duel() -> bool:
 	duel.move_index=2
 	duel.set_phase("tell",1.3)
 	await capture("duel-cloud")
+	var earlier_clears: int = game.data.expedition_wins[0]
+	game.data.expedition_wins[0]=0
+	duel.damage_enemy(duel.stats.enemy)
+	await get_tree().create_timer(.55).timeout
+	game.data.expedition_wins[0]=earlier_clears
+	if not game.data.wukong_unlocked:
+		return false
+	find_text_button(modal,"选择掌门").pressed.emit()
+	find_text_button(modal,"选择悟空").pressed.emit()
+	if duel.player_name!="悟空" or duel.technique!="大闹天宫" or duel.hero_art.resource_path!="res://assets/hero_action_2.webp":
+		return false
+	find_text_button(modal,"挑战古甲").pressed.emit()
+	duel.stats.focus=3
+	duel.player.x=565
+	duel.enemy.x=899
+	send_key(KEY_L,true)
+	await physics_frames(3)
+	send_key(KEY_L,false)
+	if duel.stats.focus!=0 or duel.stats.enemy>=duel.stats.maxenemy:
+		return false
+	await capture("duel-wukong",.06)
 	close_scene()
 	show_world()
 	action_expeditions=true
 	open_expedition()
 	find_text_button(modal,"启程入境").pressed.emit()
 	choose_node("trail")
-	if not is_instance_valid(duel) or not game.battle.action_duel:
+	if not is_instance_valid(duel) or not game.battle.action_duel or game.data.expedition.spirit_index!=-1 or game.data.expedition.guide!="独行":
 		return false
 	duel.player.x=duel.enemy.x-125
 	send_key(KEY_J,true)
@@ -403,8 +448,8 @@ func find_button(container: Node, tip: String) -> Button:
 			return child
 	return null
 
-func capture(name: String) -> void:
-	await get_tree().create_timer(.49).timeout
+func capture(name: String,settle := .49) -> void:
+	await get_tree().create_timer(settle).timeout
 	await RenderingServer.frame_post_draw
 	var image := get_viewport().get_texture().get_image()
 	var destination := OS.get_environment("JADE_QA_OUT") + "/" + name + ".png"

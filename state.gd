@@ -12,6 +12,8 @@ const MAPS = [
 const RANKS = ["炼气","筑基","金丹","元婴","飞升"]
 const NEEDS = [78,115,165,230]
 const PEOPLE = ["桃桃","石小满","竹阿七","丹栗","白小羽","松果儿","绵绵","霜阿宝"]
+const HEROES = ["洛神","应龙","悟空"]
+const HERO_TECHNIQUES = ["洛水汤汤","龙战于野","大闹天宫"]
 const PETS = ["苔苔","赤绒","枫啾","雪团"]
 const FOES = ["苔团兽","赤尾灵狐","枫火灵雀","玄霜雪狸"]
 const CROPS = [["青露草",9,3,3],["火纹芝",18,4,5]]
@@ -31,9 +33,9 @@ const TASKS = [
 	["雷过天明","布阵渡劫，飞升仙门。","ascended"]
 ]
 const DEFAULT = {
-	"seq":0,"day":1,"stones":110,"qi":34,"herbs":0,"rank":0,"map":0,"plots":[[],[],[]],
+	"seq":0,"day":1,"stones":110,"qi":34,"herbs":0,"rank":0,"map":0,"plots":[[],[],[]],"hero_style":-1,"wukong_unlocked":false,
 	"people":[],"pets":[],"harvest":0,"recruits":0,"tamed":0,"trips":0,"victories":0,
-	"winter":0,"ascended":0,"claimed":[],"log":[[1,"山门","小青团在青龙谷立下山门。"]],
+	"winter":0,"ascended":0,"claimed":[],"log":[[1,"山门","青龙谷开宗立派。"]],
 	"story_chapter":0,"story_read":[],"story_ending":-1,
 	"dust":0,"facilities":{"sword_hall":0,"medicine_hall":0,"observatory":0},
 	"expedition":{},"expedition_last":{},"expedition_serial":0,"expedition_wins":[0,0,0,0],
@@ -71,12 +73,31 @@ func save_game() -> void:
 	if file != null:
 		file.store_var(data,false)
 
+func hero_name() -> String:
+	return HEROES[data.hero_style] if data.hero_style>=0 and data.hero_style<HEROES.size() else "掌门"
+
+func hero_unlocked(style: int) -> bool:
+	return style in [0,1] or (style==2 and (data.wukong_unlocked or data.expedition_wins[0]>0))
+
+func choose_hero(style: int) -> bool:
+	if not hero_unlocked(style):
+		return false
+	data.hero_style=style
+	return true
+
+func unlock_wukong() -> bool:
+	if hero_unlocked(2):
+		return false
+	data.wukong_unlocked=true
+	record("掌门","击败沉潭古甲，解锁齐天大圣。",false,false)
+	return true
+
 func reset() -> void:
 	var sequence: int = data.seq
 	data = DEFAULT.duplicate(true)
 	data.seq = sequence
 	battle.clear()
-	record("山门","小青团在青龙谷立下山门。",false,false)
+	record("山门","青龙谷开宗立派。",false,false)
 
 func advance() -> void:
 	data.day += 1
@@ -133,7 +154,7 @@ func refine() -> bool:
 	return true
 
 func recruit_cost() -> int:
-	return 34 + data.people.size()*8
+	return 0 if data.people.is_empty() else 34 + data.people.size()*8
 
 func recruit() -> bool:
 	var index: int = data.people.size()
@@ -220,7 +241,7 @@ func breakthrough() -> bool:
 	if data.rank == 4:
 		data.stones -= 95
 		data.ascended = 1
-		record("境界","小青团引雷入阵，渡劫飞升。")
+		record("境界","%s引雷入阵，渡劫飞升。" % hero_name())
 	else:
 		record("境界","突破至%s，解锁%s。" % [RANKS[data.rank],MAPS[data.rank][1]])
 	return true
@@ -292,7 +313,7 @@ func start_battle(story_index := -1) -> bool:
 	var foe: int = [69,94,119,144][story_index] if in_story else 49+int(data.map)*13
 	battle = {
 		"map":data.map,"story":story_index,"turn":1,"hp":cap,"maxhp":cap,"enemy":foe,"maxenemy":foe,
-		"charge":false,"focus":0,"note":"小青团拔剑，静待先机。","result":0,"hit":0,"taken":0,
+		"charge":false,"focus":0,"note":"%s拔剑，静待先机。" % hero_name(),"result":0,"hit":0,"taken":0,
 		"action":"","interrupt":false,"healed":0
 	}
 	return true
@@ -452,8 +473,8 @@ func strike(tactic: String) -> void:
 			return
 		var lost := 0 if battle.story>=0 else 10
 		data.stones -= lost
-		battle.note = "小青团力竭。可调整招式再战。"
-		record("斗法","小青团撤回山门。" if lost==0 else "小青团撤回山门，损失 10 灵石。")
+		battle.note = "%s力竭。可调整招式再战。" % hero_name()
+		record("斗法",("%s撤回山门。" if lost==0 else "%s撤回山门，损失 10 灵石。") % hero_name())
 	elif is_expedition:
 		store_expedition_battle()
 
@@ -485,7 +506,7 @@ func leave_battle() -> void:
 		battle.clear()
 		return
 	if battle.result==0:
-		record("斗法","小青团收剑离开了战场。")
+		record("斗法","%s收剑离开了战场。" % hero_name())
 	battle.clear()
 
 func facility_cost(building: String) -> Array:
@@ -670,7 +691,7 @@ func resolve_expedition_fight(won: bool) -> void:
 	run.hp=battle.hp
 	run.combat.clear()
 	if not won:
-		battle.note="小青团败退，带回一半灵石。"
+		battle.note="%s败退，带回一半灵石。" % hero_name()
 		finish_expedition("败退")
 		return
 	var node: String = battle.expedition_node

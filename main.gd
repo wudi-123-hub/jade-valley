@@ -6,7 +6,6 @@ const UI = preload("res://ui.gd")
 const Chronicle = preload("res://chronicle.gd")
 const Expedition = preload("res://expedition.gd")
 const ActionDuel = preload("res://action_duel.gd")
-const HERO = preload("res://assets/dragon.webp")
 const OPENING = preload("res://assets/opening.webp")
 const FOE_ART = [
 	preload("res://assets/foe0.webp"),preload("res://assets/foe1.webp"),
@@ -73,8 +72,6 @@ var reveal_hud: Button
 var closing := false
 var story_preview := 0
 var dialogue_page := 0
-var draft_guide := -1
-var draft_spirit := -1
 var draft_herbs := 0
 var draft_tier := 0
 var draft_commission := ""
@@ -88,6 +85,7 @@ var previous_focus: Control
 var duel: Control
 var practice_boss := false
 var action_expeditions := true
+var hero_destination := "start"
 
 func _ready() -> void:
 	if "--smoke" in OS.get_cmdline_user_args():
@@ -179,6 +177,7 @@ func show_title() -> void:
 	mask.height = 2
 	mask.gradient = grad
 	ui.picture(root,mask,Rect2(Vector2.ZERO,VIEW)).stretch_mode = TextureRect.STRETCH_SCALE
+	ui.picture(root,hero_portrait(),Rect2(1047,324,341,338))
 	ui.box(root,Rect2(79,105,51,51),Color("#244d40"),UI.GOLD,14)
 	ui.mark(root,"mountain",Rect2(90,116,29,29))
 	ui.label(root,"四季宗门",Rect2(145,110,230,39),19,UI.GOLD,false,true)
@@ -192,6 +191,9 @@ func show_title() -> void:
 	fade_in(root,.38)
 
 func begin_game() -> void:
+	if not game.hero_unlocked(game.data.hero_style):
+		open_hero_select("start")
+		return
 	is_menu = false
 	var first := not have_save
 	if first:
@@ -203,6 +205,50 @@ func begin_game() -> void:
 		story_preview = 0
 		dialogue_page = 0
 		open_scene("dialogue")
+
+func hero_portrait(style := -1) -> Texture2D:
+	var current: int = maxi(0,game.data.hero_style) if style<0 else style
+	var path := "res://assets/hero_portrait_%d.webp" % current
+	return load(path) if ResourceLoader.exists(path) else load("res://assets/dragon.webp")
+
+func open_hero_select(destination: String) -> void:
+	hero_destination=destination
+	open_scene("hero_select")
+
+func hero_selection_window() -> void:
+	var host := window("选择掌门","单人出战 · 所有角色共用操作与技能效果","user",Vector2(1098,636))
+	var captions := ["女 · 洛水剑修","男 · 应龙剑修","齐天大圣 · 金箍棒"]
+	var accents := [UI.COLORS[3],UI.JADE,UI.OCHRE]
+	for i in State.HEROES.size():
+		var x := 29+i*351
+		var allowed: bool = game.hero_unlocked(i)
+		var selected: bool = i==game.data.hero_style
+		ui.framed(host,Rect2(x,125,336,455))
+		var stage := Control.new()
+		stage.clip_contents=true
+		stage.mouse_filter=Control.MOUSE_FILTER_IGNORE
+		ui.place(stage,host,Rect2(x+10,136,316,270))
+		ui.picture(stage,OPENING,Rect2(0,0,316,270),Color(.57,.71,.73),true)
+		ui.box(stage,Rect2(0,0,316,270),Color(.043,.12,.13,.38),UI.BORDER,7)
+		ui.picture(stage,hero_portrait(i),Rect2(24,11,268,255),Color.WHITE if allowed else Color(.68,.74,.73))
+		ui.label(host,State.HEROES[i],Rect2(x+18,414,300,40),25,UI.PAPER,true,true)
+		ui.label(host,"%s · %s" % [captions[i],State.HERO_TECHNIQUES[i]],Rect2(x+12,452,312,31),15,accents[i],true)
+		var caption := "选择%s" % State.HEROES[i] if allowed else "击败悬云观古甲解锁"
+		if selected:
+			caption="当前角色 · 继续"
+		ui.button(host,caption,Rect2(x+20,509,296,47),func(): use_hero(i),accents[i],allowed and not selected,10,allowed)
+
+func use_hero(style: int) -> void:
+	if not game.choose_hero(style):
+		return
+	if have_save:
+		game.save_game()
+	close_scene()
+	match hero_destination:
+		"start": begin_game()
+		"practice": open_practice()
+		"title": show_title()
+		_: open_scene("master",true)
 
 func show_world() -> void:
 	is_menu = false
@@ -417,8 +463,8 @@ func master_window() -> void:
 	var host := window("掌门","", "user", Vector2(750,476))
 	ui.box(host,Rect2(28,124,251,284),UI.WELL,UI.BORDER,15)
 	ui.box(host,Rect2(82,145,145,145),Color("#315748"),Color("#9d9466"),72)
-	ui.picture(host,HERO,Rect2(50,129,214,188))
-	ui.label(host,"小青团",Rect2(42,319,222,43),27,UI.PAPER,true,true)
+	ui.picture(host,hero_portrait(),Rect2(50,129,214,188))
+	ui.label(host,game.hero_name(),Rect2(42,319,222,43),27,UI.PAPER,true,true)
 	ui.label(host,State.RANKS[game.data.rank],Rect2(48,363,210,31),16,UI.JADE,true)
 	var requirement: int = State.NEEDS[game.data.rank] if game.data.rank<4 else 0
 	var progress := "%d / %d" % [game.data.qi,requirement] if requirement else "圆满"
@@ -432,6 +478,7 @@ func master_window() -> void:
 		ui.label(host,infos[i][0],Rect2(x,223,128,26),13,UI.MUTE,true)
 		ui.label(host,infos[i][1],Rect2(x,252,128,35),20,UI.PAPER,true)
 	ui.button(host,"前往渡劫台",Rect2(305,351,410,47),func(): open_scene("rank"),UI.COLORS[4],game.can_break())
+	ui.button(host,"更换掌门",Rect2(305,410,410,38),func(): open_hero_select("master"),UI.JADE)
 
 func inventory_window() -> void:
 	var host := window("行囊","","bag",Vector2(680,615))
@@ -542,6 +589,7 @@ func open_scene(kind: String,instant := false) -> void:
 		"facilities": facilities_window()
 		"master": master_window()
 		"inventory": inventory_window()
+		"hero_select": hero_selection_window()
 		"settings": settings_window()
 		"reset": reset_window()
 		"credits": credits_window()
@@ -605,6 +653,8 @@ func recruit_window() -> void:
 		ui.label(host,State.PEOPLE[i] if available else "空席",Rect2(slot+Vector2(3,62),Vector2(147,30)),17,UI.PAPER if available else UI.MUTE,true)
 	var full := people.size() >= State.PEOPLE.size()
 	var name := "弟子已满员" if full else "收徒 %s · %d 灵石" % [State.PEOPLE[people.size()],game.recruit_cost()]
+	if people.is_empty():
+		name="收首徒 桃桃 · 免费"
 	ui.button(host,name,Rect2(26,379,395,55),func(): game.recruit();open_scene("recruit",true),UI.GOLD,true,10,not full and game.data.stones>=game.recruit_cost())
 	ui.button(host,"弟子派驻",Rect2(434,379,251,55),func():
 		duty_selection=-1
@@ -762,7 +812,7 @@ func ledger_window() -> void:
 			ui.box(item,Rect2(3,1,762,47),UI.WELL,UI.BORDER,8)
 			ui.label(item,"第 %d 日" % entry[0],Rect2(15,2,96,43),14,UI.GOLD,true)
 			ui.label(item,entry[1],Rect2(119,2,81,43),14,UI.JADE)
-			ui.label(item,entry[2],Rect2(196,1,550,45),16,UI.PAPER)
+			ui.label(item,str(entry[2]).replace("小青团",game.hero_name()),Rect2(196,1,550,45),16,UI.PAPER)
 
 
 func open_story() -> void:
@@ -832,9 +882,9 @@ func dialogue_window() -> void:
 	ui.box(veil,Rect2(0,0,998,314),Color(.02,.12,.09,.34),UI.BORDER,0)
 	var old := load("res://assets/keeper.webp") as Texture2D
 	ui.picture(veil,old,Rect2(51,38,316,272),Color.WHITE if verse[0]==1 else Color(.59,.68,.64))
-	ui.picture(veil,HERO,Rect2(662,42,277,273),Color.WHITE if verse[0]==0 else Color(.59,.68,.64))
+	ui.picture(veil,hero_portrait(),Rect2(662,42,277,273),Color.WHITE if verse[0]==0 else Color(.59,.68,.64))
 	ui.box(host,Rect2(26,438,998,118),Color("#223c2d"),Color("#94794b"),11)
-	ui.label(host,verse[1],Rect2(46,448,260,31),21,UI.GOLD,false,true)
+	ui.label(host,game.hero_name() if verse[0]==0 else verse[1],Rect2(46,448,260,31),21,UI.GOLD,false,true)
 	ui.label(host,verse[2],Rect2(47,482,949,62),18,UI.PAPER,false,false,true)
 	var last := dialogue_page==lines.size()-1
 	ui.button(host,"上一句",Rect2(27,581,165,46),func(): dialogue_page-=1;open_scene("dialogue",true),UI.JADE,false,10,dialogue_page>0)
@@ -865,7 +915,7 @@ func ending_window() -> void:
 	ui.picture(veil,OPENING,Rect2(0,0,841,279),Color.WHITE,true)
 	var note := "城门重新打开。灯是留在故乡，还是分出去给四季山门？"
 	if decided:
-		note = Chronicle.ENDINGS[game.data.story_ending][1]
+		note = str(Chronicle.ENDINGS[game.data.story_ending][1]).replace("小青团",game.hero_name())
 	ui.label(host,note,Rect2(31,418,833,85),18,UI.PAPER,false,false,true)
 	if decided:
 		ui.button(host,"回到山门",Rect2(27,520,841,50),close_scene,UI.GOLD,true)
@@ -899,13 +949,14 @@ func battle_window() -> void:
 	ui.box(arena,Rect2(0,0,1076,430),Color(.04,.12,.09,.41),UI.BORDER,0)
 	ui.framed(arena,Rect2(19,18,323,79))
 	ui.framed(arena,Rect2(733,18,324,79))
-	ui.label(arena,"小青团",Rect2(40,25,144,28),22,UI.PAPER,false,true)
+	ui.label(arena,game.hero_name(),Rect2(40,25,144,28),22,UI.PAPER,false,true)
 	ui.label(arena,foe_name,Rect2(753,25,176,28),22,UI.PAPER,false,true)
 	ui.label(arena,"%d / %d" % [b.hp,b.maxhp],Rect2(212,26,100,29),16,UI.JADE,true)
 	ui.label(arena,"%d / %d" % [b.enemy,b.maxenemy],Rect2(930,26,104,29),16,UI.COLORS[2],true)
 	ui.meter(arena,Rect2(41,61,279,11),float(b.hp)/b.maxhp,UI.JADE)
 	ui.meter(arena,Rect2(755,61,279,11),float(b.enemy)/b.maxenemy,UI.COLORS[2])
-	var hero := ui.picture(arena,HERO,Rect2(93,126,291,250))
+	var hero := ui.picture(arena,hero_portrait(),Rect2(93,126,291,250))
+	hero.flip_h=true
 	var enemy_art: Texture2D = FOE_ART[b.map]
 	var guardian_path := "res://assets/guardian%d.webp" % b.map
 	if expedition_fight and b.expedition_node=="boss" and ResourceLoader.exists(guardian_path):
@@ -937,7 +988,7 @@ func battle_window() -> void:
 	if b.result==0 and b.get("frost",0)>0:
 		ui.label(arena,"结霜 · 御剑基础伤害 −%d" % b.frost,Rect2(355,279,366,31),15,UI.COLORS[3],true)
 	ui.box(arena,Rect2(19,380,1038,35),Color(.035,.13,.10,.89),UI.BORDER,8)
-	ui.label(arena,b.note,Rect2(27,381,1023,32),17,UI.PAPER,true)
+	ui.label(arena,str(b.note).replace("小青团",game.hero_name()),Rect2(27,381,1023,32),17,UI.PAPER,true)
 	var relic: int = b.get("relic",-1)
 	if relic>=0:
 		var relic_note: String = b.get("relic_note","")
@@ -974,9 +1025,9 @@ func battle_window() -> void:
 				open_scene("story"),UI.OCHRE,true)
 		return
 	var actions := [
-		["attack","御剑斩","伤害 %d · 剑意 +1" % game.hit_preview(),"training","sword",UI.OCHRE],
+		["attack","如意棒" if game.data.hero_style==2 else "御剑斩","伤害 %d · 剑意 +1" % game.hit_preview(),"training","sword",UI.OCHRE],
 		["guard","架剑","减伤 · 剑意 +2","none","shield",UI.COLORS[3]],
-		["spell","破阵诀","伤害 %d · 剑意 −3" % game.spell_damage(),"rank","spark",UI.COLORS[4]],
+		["spell",State.HERO_TECHNIQUES[maxi(0,game.data.hero_style)],"伤害 %d · 剑意 −3" % game.spell_damage(),"rank","spark",UI.COLORS[4]],
 		["herb","灵草疗伤","恢复 31 · 持有 %d 株" % game.expedition_herbs(),"garden","sprout",UI.JADE]
 	]
 	for i in actions.size():
@@ -1005,12 +1056,6 @@ func battle_window() -> void:
 
 func open_expedition() -> void:
 	if game.data.expedition.is_empty():
-		draft_guide=-1
-		for i in game.data.people.size():
-			if game.guide_available(i):
-				draft_guide=i
-				break
-		draft_spirit = 0 if game.data.pets.size()>0 else -1
 		draft_herbs = mini(2,game.data.herbs)
 		draft_tier = 0
 		draft_commission = ""
@@ -1027,62 +1072,45 @@ func expedition_window() -> void:
 		expedition_route()
 		return
 	var region: int = game.data.map
-	var host := window("遗灯秘境","%s · 远征整备" % State.MAPS[region][1],"compass",Vector2(1106,725))
+	var host := window("遗灯秘境","%s · 单人远征整备" % State.MAPS[region][1],"compass",Vector2(1106,620))
 	var veil := Control.new()
 	veil.clip_contents = true
 	veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ui.place(veil,host,Rect2(28,127,477,484))
-	ui.picture(veil,expedition_art(),Rect2(0,0,477,484),Color.WHITE,true)
-	ui.box(veil,Rect2(0,248,477,236),Color(.045,.12,.095,.93),UI.BORDER,8)
-	ui.label(veil,"踏过五段山路，找到遗灯之门。",Rect2(21,260,435,36),21,UI.PAPER,false,true)
-	ui.label(veil,"气血与灵草会带进下一场战斗。主动撤回能保住已得战利品，败退只带回一半灵石。",Rect2(21,323,431,65),16,UI.PAPER,false,false,true)
+	ui.place(veil,host,Rect2(28,127,477,428))
+	ui.picture(veil,expedition_art(),Rect2(0,0,477,428),Color.WHITE,true)
+	ui.box(veil,Rect2(0,197,477,231),Color(.045,.12,.095,.93),UI.BORDER,8)
+	ui.label(veil,"踏过五段山路，找到遗灯之门。",Rect2(21,206,435,36),21,UI.PAPER,false,true)
+	ui.label(veil,"气血与灵草会带进下一场战斗。主动撤回能保住已得战利品，败退只带回一半灵石。",Rect2(21,266,431,62),16,UI.PAPER,false,false,true)
 	if region==0 and action_expeditions:
-		ui.label(veil,"青龙谷遭遇 · 横版即时斗法",Rect2(21,294,435,24),14,UI.GOLD)
+		ui.label(veil,"青龙谷遭遇 · 横版即时斗法",Rect2(21,242,435,23),14,UI.GOLD)
 	var forecast: Dictionary = game.expedition_forecast(draft_scout)
 	var commission: String = Expedition.COMMISSIONS[draft_commission][0] if not draft_commission.is_empty() else "尚未接取委托"
-	ui.label(veil,"本轮 %s  ·  %s" % [forecast.name,commission],Rect2(21,389,433,42),15,UI.GOLD)
-	ui.button(veil,"看路况 · 选委托",Rect2(19,438,219,37),func(): open_scene("expedition_plan"),UI.JADE,true)
+	ui.label(veil,"本轮 %s  ·  %s" % [forecast.name,commission],Rect2(21,334,433,42),15,UI.GOLD)
+	ui.button(veil,"看路况 · 选委托",Rect2(19,380,219,37),func(): open_scene("expedition_plan"),UI.JADE,true)
 	if not game.data.expedition_last.is_empty():
-		ui.button(veil,"上次远征战报",Rect2(245,438,214,37),func(): open_scene("expedition_result"),UI.JADE)
-	var guides: Array[int] = [-1]
-	for i in game.data.people.size():
-		if game.guide_available(i):
-			guides.append(i)
-	if draft_guide not in guides:
-		draft_guide=-1
-	var guide_name: String = game.data.people[draft_guide] if draft_guide>=0 else "独行"
-	var guide_help: String = "在岗弟子须先从派驻名单撤回。" if draft_guide<0 else "%s · %s" % Expedition.ROLES[draft_guide%Expedition.ROLES.size()]
-	var pet_name: String = game.data.pets[draft_spirit] if draft_spirit>=0 else "无随行灵兽"
-	var pet_help: String = "可在灵兽园驯养灵兽。" if draft_spirit<0 else Expedition.PET_TRAITS[draft_spirit]
-	prep_selector(host,0,"随行弟子",guide_name,guide_help,func(amount: int):
-		draft_guide=guides[posmod(guides.find(draft_guide)+amount,guides.size())]
-		open_scene("expedition",true),guides.size()>1)
-	prep_selector(host,1,"灵兽伙伴",pet_name,pet_help,func(amount: int):
-		draft_spirit=posmod(draft_spirit+1+amount,game.data.pets.size()+1)-1
-		open_scene("expedition",true),game.data.pets.size()>0)
-	prep_selector(host,2,"行囊灵草","%d 株" % draft_herbs,"每场战斗可用灵草治疗，最多装 3 株。",func(amount: int):
+		ui.button(veil,"上次远征战报",Rect2(245,380,214,37),func(): open_scene("expedition_result"),UI.JADE)
+	prep_selector(host,0,"行囊灵草","%d 株" % draft_herbs,"远征中可用灵草疗伤，最多装 3 株。",func(amount: int):
 		draft_herbs=posmod(draft_herbs+amount,mini(3,game.data.herbs)+1)
 		open_scene("expedition",true),game.data.herbs>0)
 	var risky: bool = game.data.expedition_wins[region]>0
-	prep_selector(host,3,"远征难度","险途" if draft_tier else "初探","敌人更强，灯砂更多。" if draft_tier else ("按左右切换难度。" if risky else "首次破关后解锁险途。"),func(_amount: int):
+	prep_selector(host,1,"远征难度","险途" if draft_tier else "初探","敌人更强，灯砂更多。" if draft_tier else ("按左右切换难度。" if risky else "首次破关后解锁险途。"),func(_amount: int):
 		draft_tier=1-draft_tier
 		open_scene("expedition",true),risky)
-	if draft_spirit>=0:
-		var technique: Array = Expedition.PET_MOVES[draft_spirit]
-		ui.label(host,"灵契 %s · %s" % technique,Rect2(533,519,542,30),14,UI.GOLD)
 	var relic_name: String = Expedition.RELICS[draft_relic][0] if draft_relic>=0 else "未携带"
-	ui.button(host,"镇门遗宝 · %s" % relic_name,Rect2(530,551,267,43),func():
+	ui.button(host,"镇门遗宝 · %s" % relic_name,Rect2(530,333,546,47),func():
 		relic_return="expedition"
 		open_scene("relics"),UI.GOLD)
-	var scout_button := ui.button(host,"勘察札 · 已携带" if draft_scout else "勘察札 · %s" % ("可携带" if game.data.scout_token>0 else "暂无"),Rect2(808,551,268,43),func():
+	var scout_button := ui.button(host,"勘察札 · 已携带" if draft_scout else "勘察札 · %s" % ("可携带" if game.data.scout_token>0 else "暂无"),Rect2(530,392,546,47),func():
 		draft_scout=not draft_scout
 		open_scene("expedition",true),UI.JADE,draft_scout,10,game.data.scout_token>0)
 	scout_button.tooltip_text="启程时消耗 1 张，给第三段增加无伤捷径。" if game.data.scout_token>0 else "安排弟子巡山，在岗 3 日后取得。"
-	ui.button(host,"宗门营造",Rect2(530,605,189,54),func(): open_scene("facilities"),UI.JADE)
-	ui.button(host,"启程入境",Rect2(731,605,345,54),func():
-		if game.start_expedition(draft_guide,draft_spirit,draft_herbs,draft_tier,draft_commission,draft_relic,draft_scout,action_expeditions):
-			route_choice=""
-			open_scene("expedition",true),UI.OCHRE,true)
+	ui.button(host,"宗门营造",Rect2(530,501,189,54),func(): open_scene("facilities"),UI.JADE)
+	ui.button(host,"启程入境",Rect2(731,501,345,54),launch_prepared_expedition,UI.OCHRE,true)
+
+func launch_prepared_expedition() -> void:
+	if game.start_expedition(-1,-1,draft_herbs,draft_tier,draft_commission,draft_relic,draft_scout,action_expeditions):
+		route_choice=""
+		open_scene("expedition",true)
 
 func relic_window() -> void:
 	var choosing := relic_return=="expedition"
@@ -1182,7 +1210,7 @@ func route_points(board: Node,point_a: Vector2,point_b: Vector2,tint: Color,emph
 
 func expedition_route() -> void:
 	var route: Dictionary = game.data.expedition
-	var host := window(route.get("route_name","遗灯秘境"),"%s · %s · %s / %s" % [State.MAPS[route.area][1],"险途" if route.tier else "初探",route.guide,route.pet],"compass",Vector2(1160,755))
+	var host := window(route.get("route_name","遗灯秘境"),"%s · %s · %s" % [State.MAPS[route.area][1],"险途" if route.tier else "初探",game.hero_name()],"compass",Vector2(1160,755))
 	var options: Array = game.expedition_choices()
 	if route_choice not in options:
 		route_choice=""
@@ -1348,6 +1376,9 @@ func combat(action: String) -> void:
 	open_scene("battle",true)
 
 func open_practice() -> void:
+	if not game.hero_unlocked(game.data.hero_style):
+		open_hero_select("practice")
+		return
 	practice_boss=false
 	open_scene("practice",true)
 
@@ -1360,7 +1391,7 @@ func action_window(practice: bool) -> void:
 	var arena := ActionDuel.new()
 	duel=arena
 	var run: Dictionary = game.data.expedition
-	arena.setup(values,1 if practice else run.herbs,-1 if practice else run.get("spirit_index",-1),0 if practice else run.get("spirit_charges",0),game.data.motion,practice)
+	arena.setup(values,1 if practice else run.herbs,-1 if practice else run.get("spirit_index",-1),0 if practice else run.get("spirit_charges",0),game.data.motion,practice,game.data.hero_style,game.hero_name())
 	ui.place(arena,modal,Rect2(Vector2.ZERO,VIEW))
 	arena.sounded.connect(sound_tick)
 	if not practice:
@@ -1383,6 +1414,9 @@ func action_result(practice: bool,won: bool) -> void:
 	var panel := ui.framed(modal,Rect2(456,293,528,228))
 	ui.label(panel,"破阵成功" if won else "气血耗尽",Rect2(27,21,474,49),32,UI.PAPER,true,true)
 	var message: String = "熟悉剑势后，可挑战沉潭古甲。" if not practice_boss else "等甲心外露，出手会更有效。"
+	if practice and practice_boss and won and game.unlock_wukong():
+		have_save=true
+		message="齐天大圣已解锁，可在选择掌门中使用。"
 	if not practice:
 		message=game.battle.note
 	ui.label(panel,message,Rect2(23,78,482,42),17,UI.MUTE,true)
@@ -1390,7 +1424,12 @@ func action_result(practice: bool,won: bool) -> void:
 		ui.button(panel,"挑战古甲" if won and not practice_boss else "再试一次",Rect2(38,147,218,49),func():
 			practice_boss=practice_boss or won
 			open_scene("practice",true),UI.OCHRE,true)
-		ui.button(panel,"退出试炼",Rect2(273,147,218,49),close_scene,UI.JADE)
+		ui.button(panel,"选择掌门" if practice_boss and won else "退出试炼",Rect2(273,147,218,49),func():
+			if practice_boss and won:
+				close_scene()
+				open_hero_select("practice")
+			else:
+				close_scene(),UI.JADE)
 	else:
 		var completed: bool = game.data.expedition.is_empty()
 		ui.button(panel,"查看远征结算" if completed else "继续远征",Rect2(38,147,453,49),func():
@@ -1419,7 +1458,8 @@ func settings_window() -> void:
 		ui.button(host,"保存并退出",Rect2(341,401,318,45),func(): game.save_game();quit_game(),UI.GOLD)
 	else:
 		ui.button(host,"返回标题",Rect2(26,401,633,45),close_scene,UI.GOLD)
-	ui.button(host,"开源许可",Rect2(210,466,266,35),func(): open_scene("credits"),UI.GOLD,false,8)
+	ui.button(host,"选择掌门",Rect2(26,466,302,35),func(): open_hero_select("title" if is_menu else "master"),UI.JADE,false,8)
+	ui.button(host,"开源许可",Rect2(341,466,318,35),func(): open_scene("credits"),UI.GOLD,false,8)
 
 func credits_window() -> void:
 	var host := window("开源许可","Godot Engine · MIT    Noto SC · SIL OFL","scroll",Vector2(760,600))
@@ -1537,9 +1577,11 @@ func smoke_test() -> void:
 	print("DUTIES_SMOKE_", "PASS" if duties else "FAIL")
 	var action := smoke_action()
 	print("ACTION_DUEL_SMOKE_", "PASS" if action else "FAIL")
+	var heroes := smoke_hero_selection()
+	print("HERO_SELECTION_SMOKE_", "PASS" if heroes else "FAIL")
 	music.free()
 	sfx.free()
-	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action else 1)
+	get_tree().quit(0 if ok and expeditions and tactics and relics and duties and action and heroes else 1)
 
 func smoke_expedition() -> bool:
 	game=State.new()
@@ -1798,4 +1840,22 @@ func smoke_action_guardian() -> bool:
 	arena.use_herb()
 	ok=ok and arena.herbs==0 and stats.hp==90
 	arena.free()
+	return ok
+
+func smoke_hero_selection() -> bool:
+	game=State.new()
+	game.transient=true
+	var ok: bool = game.hero_name()=="掌门" and not game.choose_hero(-1) and not game.choose_hero(2)
+	ok=ok and game.choose_hero(0) and game.hero_name()=="洛神" and game.choose_hero(1) and game.hero_name()=="应龙"
+	var balance: int = game.data.stones
+	ok=ok and game.recruit_cost()==0 and game.recruit() and game.recruit_cost()>0 and game.data.stones>=balance
+	ok=ok and game.unlock_wukong() and not game.unlock_wukong() and game.choose_hero(2) and game.hero_name()=="悟空"
+	var values := {"expedition_node":"trail","tier":0,"result":0,"hp":90,"maxhp":90,"enemy":51,"maxenemy":51,"focus":3,"relic":-1}
+	for i in State.HEROES.size():
+		var arena := ActionDuel.new()
+		arena.setup(values.duplicate(true),0,-1,0,false,true,i,State.HEROES[i])
+		arena.player.x=arena.enemy.x-185
+		arena.burst()
+		ok=ok and arena.stats.enemy==24 and arena.stats.focus==0 and arena.technique==State.HERO_TECHNIQUES[i]
+		arena.free()
 	return ok
